@@ -113,4 +113,14 @@ full-clean: clean
 python-cache-clean:
 	find . -name "*__pycache__" -exec rm -rf {} \; -prune
 
+# VLINT_FLAGS += -d ./hardware/src
+VLINT_FLAGS += -d ./submodules/VERSAT/hardware/src
+# VLINT_FLAGS += -d ./submodules/VERSAT/hardware/src/units
+VLINT_FLAGS += -c ./hardware/lint
+VLINT_FLAGS += -o lint.rpt
+VLINT_FLAGS += --gen-waiver
+lint-all-fus:
+	nix-shell --run "./scripts/verilog_linter.py $(VLINT_FLAGS)"
+	cat lint.rpt
+
 .PHONY: setup full-clean clean python-cache-clean
