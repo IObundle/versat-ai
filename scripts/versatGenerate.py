@@ -14,7 +14,6 @@ def RunVersat(versat_spec, versat_top, versat_extra, build_dir, axi_data_w, debu
         "-s",
         f"-b{axi_data_w}",
         "-d",  # DMA
-        "-E",  # Extra stuff that is mostly hardcoded for this project
         "-p",
         "iob_csrs_",
         "-t",

@@ -113,4 +113,22 @@ full-clean: clean
 python-cache-clean:
 	find . -name "*__pycache__" -exec rm -rf {} \; -prune
 
+# Use --fu-dir to list all FUs for linting
+VLINT_FLAGS += --fu-dir ./hardware/src
+VLINT_FLAGS += --fu-dir ./submodules/VERSAT/hardware/src/units
+# Use build directory to find all verilog sources and headers
+VLINT_FLAGS += -d ../versat_ai_V0.8/hardware/src
+VLINT_FLAGS += -c ./hardware/lint
+VLINT_FLAGS += -c ./submodules/VERSAT/hardware/lint
+VLINT_FLAGS += -o lint.rpt
+# VLINT_FLAGS += --gen-waiver
+lint-all-fus: $(TEST)
+	nix-shell --run "./scripts/verilog_linter.py $(VLINT_FLAGS)"
+	cat lint.rpt
+
+FU?=iob_fp_clz
+lint-fu: clean $(TEST)
+	nix-shell --run "./scripts/verilog_linter.py $(VLINT_FLAGS) --fu $(FU)"
+	cat lint.rpt
+
 .PHONY: setup full-clean clean python-cache-clean

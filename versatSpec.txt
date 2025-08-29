@@ -1,5 +1,4 @@
-
-addressGen Read DataSimple(xWidth,yWidth,zWidth,aWidth,bWidth,cWidth)
+addressGen DataSimple(xWidth,yWidth,zWidth,aWidth,bWidth,cWidth){
    for c 0..cWidth
    for b 0..bWidth
    for a 0..aWidth
@@ -7,8 +6,9 @@ addressGen Read DataSimple(xWidth,yWidth,zWidth,aWidth,bWidth,cWidth)
    for y 0..yWidth
    for x 0..xWidth
    addr = ((((c * bWidth + b) * aWidth + a) * zWidth + z) * yWidth + y) * xWidth + x;
+}
 
-addressGen Read DataBroadCasted(cEnable,cLoop,bEnable,bLoop,cWidth,aEnable,aLoop,bWidth,zEnable,zLoop,aWidth,yEnable,yLoop,zWidth,xEnable,xLoop,yWidth)
+addressGen DataBroadCasted(cEnable,cLoop,bEnable,bLoop,cWidth,aEnable,aLoop,bWidth,zEnable,zLoop,aWidth,yEnable,yLoop,zWidth,xEnable,xLoop,yWidth){
    for c 0..cLoop
    for b 0..bLoop
    for a 0..aLoop
@@ -16,10 +16,12 @@ addressGen Read DataBroadCasted(cEnable,cLoop,bEnable,bLoop,cWidth,aEnable,aLoop
    for y 0..yLoop
    for x 0..xLoop
    addr = ((((c * cEnable * cWidth + b * bEnable) * bWidth + a * aEnable) * aWidth + z * zEnable) * zWidth + y * yEnable) * yWidth + x * xEnable;
+}
 
-addressGen Read Linear(size)
+addressGen Linear(size){
    for x 0..size
    addr = x;
+}
 
 module Top_Add(){
    using(DataBroadCasted) VRead inputs[2];
