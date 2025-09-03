@@ -56,7 +56,7 @@ module iob_fp_add #(
                 )
    special_op_b
      (
-      .data_i       (op_b_i),
+      .data_i       (op_b_i[DATA_W-2:0]),
 
       .nan_o        (op_b_nan),
       .infinite_o   (op_b_inf),
@@ -254,7 +254,7 @@ module iob_fp_add #(
    end
 
    // Round
-   wire [MAN_W-1:0]         Temp_Mantissa_rnd;
+   wire [MAN_W-2:0]         Temp_Mantissa_rnd;
    wire [EXP_W-1:0]         exp_adjust_rnd;
    iob_fp_round #(
            .DATA_W (MAN_W),
@@ -270,7 +270,7 @@ module iob_fp_add #(
       );
 
    // Pack
-   wire [MAN_W-2:0]         Mantissa = Temp_Mantissa_rnd[MAN_W-2:0];
+   wire [MAN_W-2:0]         Mantissa = Temp_Mantissa_rnd;
    wire [EXP_W-1:0]         Exponent = exp_adjust_rnd;
    wire                     Sign = A_sign_reg4;
 

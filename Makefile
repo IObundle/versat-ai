@@ -104,6 +104,7 @@ clean:
 	@rm -rf ./software/*.bin
 	@rm -f  ./software/src/code.c ./software/src/modelInfo.h
 	@rm -rf ../*.summary ../*.rpt
+	@rm -rf ./*.rpt
 	@find . -name \*~ -delete
 
 full-clean: clean
@@ -112,5 +113,22 @@ full-clean: clean
 # Remove all __pycache__ folders with python bytecode
 python-cache-clean:
 	find . -name "*__pycache__" -exec rm -rf {} \; -prune
+
+# Use --fu-dir to list all FUs for linting
+VLINT_FLAGS += --fu-dir ./hardware/src
+VLINT_FLAGS += --fu-dir ./submodules/VERSAT/hardware/src/units
+# Use build directory to find all verilog sources and headers
+VLINT_FLAGS += -d ../versat_ai_V0.8/hardware/src
+VLINT_FLAGS += -c ./hardware/lint
+VLINT_FLAGS += -c ./submodules/VERSAT/hardware/lint
+VLINT_FLAGS += -o lint.rpt
+lint-all-fus: clean $(TEST)
+	nix-shell --run "./scripts/verilog_linter.py $(VLINT_FLAGS)"
+	cat lint.rpt
+
+FU?=iob_fp_clz
+lint-fu: clean $(TEST)
+	nix-shell --run "./scripts/verilog_linter.py $(VLINT_FLAGS) --fu $(FU)"
+	cat lint.rpt
 
 .PHONY: setup full-clean clean python-cache-clean

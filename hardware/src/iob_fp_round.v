@@ -11,14 +11,14 @@ module iob_fp_round #(
    input [DATA_W+3-1:0] mantissa_i,
 
    output [EXP_W-1:0]   exponent_rnd_o,
-   output [DATA_W-1:0]  mantissa_rnd_o
+   output [DATA_W-2:0]  mantissa_rnd_o
    );
 
    // Round
    wire                 round = ~mantissa_i[2]? 1'b0:
                                 ~|mantissa_i[1:0] & ~mantissa_i[3]? 1'b0: 1'b1;
 
-   wire [DATA_W-1:0]    mantissa_rnd_int = round? mantissa_i[DATA_W+3-1:3] + 1'b1: mantissa_i[DATA_W+3-1:3];
+   wire [DATA_W-1:0] mantissa_rnd_int = round? mantissa_i[DATA_W+3-1:3] + 1'b1: mantissa_i[DATA_W+3-1:3];
 
    wire allOnes = &mantissa_i[DATA_W+3-1:3];
 
@@ -34,6 +34,7 @@ module iob_fp_round #(
       );
 
    assign exponent_rnd_o = allOnes ? (exponent_i + 1) : exponent_i - {{(EXP_W-$clog2(DATA_W)){1'b0}},lzc};
-   assign mantissa_rnd_o = allOnes ? 0 : mantissa_rnd_int << lzc;
+   wire [DATA_W-2:0] mantissa_rnd_norm = mantissa_rnd_int[DATA_W-2:0] << lzc;
+   assign mantissa_rnd_o = allOnes ? 0 : mantissa_rnd_norm;
 
 endmodule
