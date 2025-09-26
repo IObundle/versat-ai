@@ -76,8 +76,8 @@ class Operation:
     opName: str
     inputs: list[DataSource]
     output: str  # For now we are assuming that nodes only contain one output. Most graphs appear to follow this principle, even if the output is used by multiple nodes, the node itself only appaears to contain one. Maybe more exotic operations shatter this notion but will deal with them when they appear.
-    inputDimensions: list[list[int]]
-    outputDimensions: list[int]
+    inputDimensions: list[list[int | str]]
+    outputDimensions: list[int | str]
     parsedAttributes: dict[str, InstantiatedAttribute] = None
 
     # Data computed from extracted model.
@@ -86,14 +86,19 @@ class Operation:
     )
 
 
+class BroadcastType(Enum):
+    NO_BROADCAST = auto()
+    UNIDIRECTIONAL = auto()
+    MULTIDIRECTIONAL = auto()
+
+
 @dataclass
 class OnnxOperatorSpec:
     name: str
     emitFunction: Callable
-    supportsMultidirectionalBroadcasting: bool
-    supportsUnidirectionalBroadcasting: bool
     attributesDict: dict[str, OnnxAttribute] = field(default_factory=dict)
     generateVersatCode: bool = False
+    broadcastType: BroadcastType = BroadcastType.NO_BROADCAST
 
 
 @dataclass

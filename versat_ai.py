@@ -5,7 +5,7 @@
 
 def setup(py_params_dict):
     # Py2hwsw dictionary describing current core
-    mem_addr_w = 22
+    mem_addr_w = 20
     name = "versat_ai"
     addr_w = 32
     data_w = 32
@@ -98,10 +98,17 @@ def setup(py_params_dict):
                         "max": "32",
                     },
                     {
+                        "name": "FW_ADDR_W",
+                        "type": "M",
+                        "val": 19,
+                        "min": "0",
+                        "max": str(mem_addr_w),
+                    },
+                    {
                         "name": "EXT_MEM_HEXFILE",
                         "descr": "Firmware file name",
                         "type": "D",
-                        "val": f'"{name}_firmware"',
+                        "val": f'"{name}_firmware"',  # NOTE: The '"' inside are on purpose
                         "min": "NA",
                         "max": "NA",
                     },

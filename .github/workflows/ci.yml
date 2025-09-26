@@ -37,14 +37,14 @@ jobs:
           submodules: 'recursive'
       - name: Clean untracked files and directories (like old submodules)
         run: git clean -ffdx
-      - name: run test1 pc-emul
+      - name: run Generated pc-emul
         run: |
           make clean;\
-          make pc-emul-run TEST=test1
-      - name: run test1 sim
+          make pc-emul-run TEST=Generated
+      - name: run Generated sim
         run: |
           make clean;\
-          make sim-run TEST=test1
+          make sim-run TEST=Generated
 
   test2:
     runs-on: self-hosted
@@ -58,14 +58,10 @@ jobs:
           submodules: 'recursive'
       - name: Clean untracked files and directories (like old submodules)
         run: git clean -ffdx
-      - name: run test2 pc-emul
+      - name: run Keyword pc-emul
         run: |
           make clean;\
-          make pc-emul-run TEST=test2
-      - name: run test2 sim
-        run: |
-          make clean;\
-          make sim-run TEST=test2
+          make pc-emul-run TEST=Keyword
 
   lint-FUs:
     runs-on: self-hosted

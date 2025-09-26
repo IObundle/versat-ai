@@ -41,7 +41,7 @@ module iob_fp_add #(
                 )
    special_op_a
      (
-      .data_i       (op_a_i),
+      .data_i       (op_a_i[DATA_W-2:0]),
 
       .nan_o        (op_a_nan),
       .infinite_o   (op_a_inf),

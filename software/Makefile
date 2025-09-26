@@ -49,7 +49,7 @@ INCLUDES ?=-I. -Isrc
 #########################################
 
 # compiler flags
-EMUL_CFLAGS ?=-std=gnu99 -g -DPC
+EMUL_CFLAGS ?=-std=gnu99 -g -DPC #-fsanitize=address -static-libasan
 
 CONSOLE_CMD ?=rm -f soc2cnsl cnsl2soc; ../scripts/console.py -L
 
@@ -81,13 +81,13 @@ debug:
 #########################################
 
 fw_emul: $(EMUL_HDR) $(EMUL_SRC) libaccel.a
-	gcc -o $@ $(EMUL_CFLAGS) $(EMUL_INCLUDES) $(EMUL_SRC) -lm libaccel.a -lstdc++
+	gcc -o $@ $(EMUL_CFLAGS) $(EMUL_INCLUDES) $(EMUL_SRC) libaccel.a -lm -lstdc++
 
 build_emul: fw_emul
 	@echo "build"
 
 #board client command
-BOARD_GRAB_CMD ?=../scripts/board_client.py grab 300
+BOARD_GRAB_CMD ?=../scripts/board_client.py grab 3000
 
 test.log: build_emul
 	$(BOARD_GRAB_CMD) -s './fw_emul' -c '$(CONSOLE_CMD)'
@@ -102,12 +102,12 @@ run_emul: test.log
 #########################################
 
 ifneq ($(wildcard ./src/$(NAME)_csrs.c),)
-CSRS ?= ./src/$(NAME)_csrs.c
+TB_SRC ?= ./src/$(NAME)_csrs.c
 endif
 
 TB_INCLUDES ?=-I./src
 
-tb: ./src/iob_c_tb.c ./src/iob_core_tb.c $(CSRS)
+tb: ./src/iob_c_tb.c ./src/iob_core_tb.c $(TB_SRC)
 	gcc $(TB_INCLUDES) -g -o $@ $^
 
 

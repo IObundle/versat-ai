@@ -16,13 +16,38 @@
 #include "modelInfo.h"
 #include "versat_ai.h"
 
-char *send_string = "Sending this string as a file to console.\n"
-                    "The file is then requested back from console.\n"
-                    "The sent file is compared to the received file to confirm "
-                    "correct file transfer via UART using console.\n"
-                    "Generating the file in the firmware creates an uniform "
-                    "file transfer between pc-emul, simulation and fpga without"
-                    " adding extra targets for file generation.\n";
+// Contains a set of defines for each test type.
+#include "testInfo.h"
+
+#ifdef PC
+#include <stdio.h>
+long int GetFileSize(FILE *file) {
+  long int mark = ftell(file);
+
+  fseek(file, 0, SEEK_END);
+  long int size = ftell(file);
+
+  fseek(file, mark, SEEK_SET);
+
+  return size;
+}
+#endif
+
+void FastReceiveFile(const char *path, void *buffer) {
+#ifdef PC
+  FILE *f = fopen(path, "r");
+  if (!f) {
+    printf("Problem opening file for reading: %s\n", path);
+    return;
+  }
+
+  long int size = GetFileSize(f);
+  fread(buffer, sizeof(char), size, f);
+  fclose(f);
+#else
+  uart_recvfile(path, buffer);
+#endif
+}
 
 void clear_cache() {
 #ifndef PC
@@ -33,6 +58,13 @@ void clear_cache() {
   // Flush VexRiscv CPU internal cache
   asm volatile(".word 0x500F" ::: "memory");
 #endif
+}
+
+void *Align4(void *in) {
+  iptr asInt = (iptr)in;
+
+  asInt = ((asInt + 3) & ~3);
+  return (void *)asInt;
 }
 
 int main() {
@@ -49,18 +81,35 @@ int main() {
   // test puts
   uart_puts("\n\n\nHello world from versat_ai!\n\n\n");
 
-  uart_puts("\n\n\nGonna init versat!\n\n\n");
+#ifdef TEST_NAME
+  printf("\n\nRunning test %s\n\n", TEST_NAME);
+#endif
+
+  uart_puts("\nGonna init versat!\n");
+  SetVersatDebugPrintfFunction(printf);
   versat_init(VERSAT0_BASE);
 
-  SetVersatDebugPrintfFunction(printf);
+#ifdef CREATE_VCD
+  ConfigCreateVCD(CREATE_VCD);
+#else
+  ConfigCreateVCD(false);
+#endif
 
   printf("Versat base: %x\n", VERSAT0_BASE);
 
-  void *output = malloc(VERSAT_AI_OUTPUT_SIZE);
-  void *temp = malloc(VERSAT_AI_TEMP_SIZE);
-  void *model = malloc(VERSAT_AI_MODEL_SIZE);
-  void *correct = malloc(VERSAT_AI_CORRECT_SIZE);
-  void *inputMemory = malloc(VERSAT_AI_ALL_INPUTS_SIZE);
+  int stackVar;
+
+  printf("Stack  : %p\n", &stackVar);
+
+  // We allocate a little bit more just in case.
+  // Also need to allocate a bit more to ensure that Align4 works fine.
+  int extra = 100;
+
+  void *output = Align4(malloc(VERSAT_AI_OUTPUT_SIZE + extra));
+  void *temp = Align4(malloc(VERSAT_AI_TEMP_SIZE + extra));
+  void *model = Align4(malloc(VERSAT_AI_MODEL_SIZE + extra));
+  void *correct = Align4(malloc(VERSAT_AI_CORRECT_SIZE + extra));
+  void *inputMemory = Align4(malloc(VERSAT_AI_ALL_INPUTS_SIZE + extra));
 
   void *inputs[VERSAT_AI_N_INPUTS];
   for (int i = 0; i < VERSAT_AI_N_INPUTS; i++) {
@@ -71,12 +120,22 @@ int main() {
   printf("Temp   : %p\n", temp);
   printf("Model  : %p\n", model);
   printf("Correct: %p\n", correct);
+  printf("Input  : %p\n", inputMemory);
 
-  uart_recvfile("model.bin", model);
-  uart_recvfile("correctOutputs.bin", correct);
-  uart_recvfile("inputs.bin", inputMemory);
+  printf("Total  : %p\n", ((char *)inputMemory) + VERSAT_AI_ALL_INPUTS_SIZE);
+
+  FastReceiveFile("correctOutputs.bin", correct);
+  printf("Received correct outputs\n");
+  FastReceiveFile("model.bin", model);
+  printf("Received model\n");
+  FastReceiveFile("inputs.bin", inputMemory);
+  printf("Received inputs\n");
 
   DebugRunInference(output, temp, inputs, model, correct);
+
+#ifdef PC
+  sleep(1);
+#endif
 
   uart_sendfile("test.log", strlen(pass_string), pass_string);
 

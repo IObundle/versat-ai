@@ -9,7 +9,7 @@ SYNTHESIZER ?= yosys
 LINTER ?= spyglass
 BOARD ?= iob_cyclonev_gt_dk
 
-TEST := test1 # Possible values: test1,test2
+TEST := Generated # Run setupTest.py to see the possible values for this
 
 PYTHON_ENV := ../python_env
 VERSAT_ACCEL := ./submodules/iob_versat/iob_versat.py
@@ -44,28 +44,22 @@ $(GENERATED_TEST): $(PYTHON_ENV) $(ALL_SCRIPTS)
 $(DOWNLOADED_TEST): $(PYTHON_ENV)
 	./scripts/downloadTests.sh
 
-# TODO: When adding more tests, we need a better way of doing this.
-test1: $(VERSAT_ACCEL) $(GENERATED_TEST)
-	bash -c "source $(PYTHON_ENV)/bin/activate; python3 ./scripts/onnxMain.py tests/generated/ model.onnx software/ software/src"
-	cp software/*.bin hardware/simulation
-	nix-shell --run "py2hwsw $(CORE) setup --no_verilog_lint --py_params 'use_intmem=$(USE_INTMEM):use_extmem=$(USE_EXTMEM):init_mem=$(INIT_MEM)' $(EXTRA_ARGS);"
-	cp -r submodules/iob_versat/software ../versat_ai_V0.8/ # Since python file was not being copied and we need a python script from inside software
-
-test2: $(VERSAT_ACCEL) $(DOWNLOADED_TEST)
-	bash -c "source $(PYTHON_ENV)/bin/activate; python3 ./scripts/onnxMain.py tests/mnist_v7/ model.onnx software/ software/src"
-	cp software/*.bin hardware/simulation
-	nix-shell --run "py2hwsw $(CORE) setup --no_verilog_lint --py_params 'use_intmem=$(USE_INTMEM):use_extmem=$(USE_EXTMEM):init_mem=$(INIT_MEM)' $(EXTRA_ARGS);"
-	cp -r submodules/iob_versat/software ../versat_ai_V0.8/ # Since python file was not being copied and we need a python script from inside software
-
-pc-emul-run: $(TEST)
+pc-emul-run: $(VERSAT_ACCEL)
+	python3 ./setupTest.py $(TEST)
 	nix-shell --run "make -C ../$(CORE)_V$(VERSION)/ pc-emul-run"
 
-sim-run: $(TEST)
+sim-run: $(VERSAT_ACCEL)
+	python3 ./setupTest.py $(TEST)
 	nix-shell --run "make -C ../$(CORE)_V$(VERSION)/ sim-run SIMULATOR=$(SIMULATOR)"
 
-# Need to be inside nix-shell for fast- rules to work. Mostly used to speed up development instead of waiting for setup everytime
+# Need to be inside nix-shell for fast rules to work. Mostly used to speed up development instead of waiting for setup everytime
 fast-versat:
 	python3 ./scripts/versatGenerate.py
+
+fast-pc-no-generate:
+	cp -r software ../versat_ai_V0.8/
+	cp -r submodules/iob_versat/software ../versat_ai_V0.8/
+	make -C ../versat_ai_V0.8/ pc-emul-run
 
 fast-pc-soft: fast-versat
 	cp -r software ../versat_ai_V0.8/
@@ -86,11 +80,21 @@ fast-sim-run:
 	cp -r submodules/iob_versat/software ../versat_ai_V0.8/
 	make -C ../versat_ai_V0.8/ sim-run SIMULATOR=$(SIMULATOR) VCD=$(VCD)
 
-# Rules to force certain files to be build, mostly for debugging as the files should just be built by the rules of the makefile
+# Rules to force certain files to be build, mostly for debugging and to support the runTest.py script
+# Do not call them directly unless you know what you are doing
+do-test:
+	bash -c "source $(PYTHON_ENV)/bin/activate; python3 ./scripts/onnxMain.py $(TEST_PATH) model.onnx software/ software/src"
+
 test-generate: 
 	rm -f $(GENERATED_TEST)
 	$(MAKE) $(GENERATED_TEST) 
 	bash -c "source $(PYTHON_ENV)/bin/activate; python3 ./scripts/onnxMain.py tests/generated/ model.onnx software/ software/src"
+
+test-setup:
+	mkdir -p hardware/simulation
+	cp software/*.bin hardware/simulation
+	nix-shell --run "py2hwsw $(CORE) setup --no_verilog_lint --py_params 'use_intmem=$(USE_INTMEM):use_extmem=$(USE_EXTMEM):init_mem=$(INIT_MEM)' $(EXTRA_ARGS);"
+	cp -r submodules/iob_versat/software ../versat_ai_V0.8/ # Since python file was not being copied and we need a python script from inside software
 
 versat-generate:
 	rm -f $(VERSAT_ACCEL)
@@ -98,16 +102,16 @@ versat-generate:
 
 clean:
 	nix-shell --run "py2hwsw $(CORE) clean --build_dir '$(BUILD_DIR)'"
-	@rm -rf ./tests
 	@rm -rf ./submodules/iob_versat
 	@rm -rf ./hardware/simulation/*.bin
 	@rm -rf ./software/*.bin
-	@rm -f  ./software/src/code.c ./software/src/modelInfo.h
+	@rm -f  ./software/src/code.c ./software/src/modelInfo.h ./software/src/testInfo.h 
 	@rm -rf ../*.summary ../*.rpt
 	@rm -rf ./*.rpt
 	@find . -name \*~ -delete
 
 full-clean: clean
+	@rm -rf ./tests
 	@rm -rf $(PYTHON_ENV)
 
 # Remove all __pycache__ folders with python bytecode
@@ -122,12 +126,14 @@ VLINT_FLAGS += -d ../versat_ai_V0.8/hardware/src
 VLINT_FLAGS += -c ./hardware/lint
 VLINT_FLAGS += -c ./submodules/VERSAT/hardware/lint
 VLINT_FLAGS += -o lint.rpt
-lint-all-fus: clean $(TEST)
+lint-all-fus: clean $(VERSAT_ACCEL)
+	python3 ./setupTest.py Generated
 	nix-shell --run "./scripts/verilog_linter.py $(VLINT_FLAGS)"
 	cat lint.rpt
 
 FU?=iob_fp_clz
-lint-fu: clean $(TEST)
+lint-fu: clean $(VERSAT_ACCEL)
+	python3 ./setupTest.py Generated
 	nix-shell --run "./scripts/verilog_linter.py $(VLINT_FLAGS) --fu $(FU)"
 	cat lint.rpt
 

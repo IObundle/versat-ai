@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import re
 import subprocess
+import sys
 from typing import Callable
 
 
@@ -58,6 +59,11 @@ def parse_arguments():
         "--gen-waiver",
         action="store_true",
         help="Generate [module]_waiver.vlt waiver file based on linter warnings.",
+    )
+    parser.add_argument(
+        "--ignore-warnings",
+        action="store_true",
+        help="Return as success even if warnings are found.",
     )
     args = parser.parse_args()
     # post process - use current dir if no dir specified
@@ -345,11 +351,16 @@ def lint_modules(
         )
 
 
-def process_results(vlog_modules: list[VerilogModule], output: str) -> None:
+def process_results(
+    vlog_modules: list[VerilogModule], output: str, ignore_warnings: bool
+) -> int:
     """Process lint results and write to output file.
     Args:
         vlog_modules (list[VerilogModule]): List of Verilog modules with lint results.
         output (str): Output report file path.
+        ignore_warnings (bool): Do not print warnings to stderr.
+    Returns:
+        int: number of failed modules.
     """
     with open(output, "w") as f:
         passed = 0
@@ -389,6 +400,11 @@ def process_results(vlog_modules: list[VerilogModule], output: str) -> None:
         f.write("======================\n")
         f.write(detailed_warnings)
 
+        if not ignore_warnings:
+            print(detailed_warnings, file=sys.stderr)
+
+        return failed
+
 
 if __name__ == "__main__":
     print("=====================")
@@ -404,4 +420,7 @@ if __name__ == "__main__":
     # 3. Run verilator lint on each module
     lint_modules(vlog_modules, args.dir, args.gen_waiver, args.fu, args.fu_dirs)
     # 4. Process results into report file
-    process_results(vlog_modules, args.output)
+    num_failed = process_results(vlog_modules, args.output, args.ignore_warnings)
+    # 5. Exit with number of failed modules as code
+    if not args.ignore_warnings:
+        sys.exit(num_failed)

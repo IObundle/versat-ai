@@ -13,6 +13,15 @@ def IndexOfNodesThatUseOutput(cModel, outputName):
     return indexes
 
 
+# TODO: How do we handle graphs that contain variable dimensions?
+#       First we can separate constant size expressions and variable sized into two regions.
+#       Second we should be able to generate an offset that depends on the dimension described.
+# NOTE: If we find out that the size of operations is substantially different functions,
+#       like one operation uses N memory while the other uses N^2 memory, then we can
+#       probably solve this problem by further dividing the memory regions into one section for
+#       each function type.
+
+
 # Heavy weight algorithm to calculate the best way of performing memory allocations.
 # We reduce the problem to rectangle fitting. The memory allocation is represented as rectangles where
 # the width is the amount of memory used and the height is the "time" where the allocation occurs

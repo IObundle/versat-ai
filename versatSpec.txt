@@ -18,14 +18,19 @@ addressGen DataBroadCasted(cEnable,cLoop,bEnable,bLoop,cWidth,aEnable,aLoop,bWid
    addr = ((((c * cEnable * cWidth + b * bEnable) * bWidth + a * aEnable) * aWidth + z * zEnable) * zWidth + y * yEnable) * yWidth + x * xEnable;
 }
 
+addressGen Broadcast1(size,enable){
+   for x 0..size
+   addr = x * enable;
+}
+
 addressGen Linear(size){
    for x 0..size
    addr = x;
 }
 
 module Top_Add(){
-   using(DataBroadCasted) VRead inputs[2];
-   using(DataSimple) VWrite output;
+   using(DataBroadCasted,Linear,Broadcast1) VRead inputs[2];
+   using(DataSimple,Linear) VWrite output;
    F_Add adder;
 #
    inputs[0..1] -> adder:0..1;
@@ -41,4 +46,100 @@ module Top_Relu(){
    relu -> output;   
 }
 
-merge Test = Top_Add | Top_Relu;
+// Output space
+addressGen Linear2(startX,startY,startOffset,sizeW,sizeH,outputImageW,stride){
+   for y 0..sizeH
+   for x 0..sizeW
+   addr = ((y + startY) * outputImageW + (x + startX) + startOffset) / stride;
+}
+
+// Should be Input space but I think some values in here are output space
+addressGen MaxPool2D(startX,startY,startOffset,kernelW,kernelH,imageWidth,sizeW,sizeH,strideW,strideH){
+   for y  0..sizeH
+   for x  0..sizeW
+   for ky 0..kernelH
+   for kx 0..kernelW
+   addr = startOffset + (y * strideH + startY + ky) * imageWidth + x * strideW + startX + kx;
+}
+
+module Top_Maxpool(){
+   using(MaxPool2D) VRead features;
+   F_AccumMax accum;
+   using(Linear2) VWrite output;
+#   
+   features -> accum;
+   accum -> output;
+}
+
+module Top_AveragePool(){
+   using(MaxPool2D) VRead features;
+   MyFloatAccum averagePool_accum;
+   F_Mul inversedDiv; // Because divisor comes from an input, easier to multiple by 1/divisor then bringing an division unit
+   Const invertedDivisor;
+   using(Linear2) VWrite output;
+#   
+   features -> averagePool_accum;
+   {averagePool_accum,invertedDivisor} -> inversedDiv:0..1;
+   inversedDiv -> output;
+}
+
+addressGen Conv2D_NHWC(startX,startY,sizeW,sizeH,inputImageW,inputImageC,sizeC,features,startC){
+   for d 0..features
+   for c 0..sizeC
+   for ky 0..sizeH
+   for kx 0..sizeW
+   addr = (startY + ky) * inputImageW * inputImageC + (startX + kx) * inputImageC + (c + startC);
+}
+
+addressGen Weight2D(startX,startY,sizeW,sizeH,kernelW,kernelH,inputChannels,sizeC,features,startC){
+   for d 0..features
+   for c 0..sizeC
+   for y 0..sizeH
+   for x 0..sizeW
+   addr = d * inputChannels * kernelW * kernelH + (c + startC) * kernelW * kernelH + (y + startY) * kernelW + (x + startX);
+}
+
+addressGen Linear2_NHWC(startX,startY,height,width,startC,outputChannels,outputWidth,stride){
+   for y 0..height
+   for x 0..width
+   for c 0..outputChannels
+   addr = ((y + startY) * outputWidth * outputChannels + (x + startX) * outputChannels + startC + c) / stride;
+}
+
+addressGen LinearStrided(size,stride){
+   for x 0..size
+   addr = x / stride;
+}
+
+module Top_Conv(){
+   using(Conv2D_NHWC) VRead features;
+   using(Weight2D) VRead weights;
+   using(LinearStrided) VRead bias;
+   //Const bias;
+   F_Mul muller;
+   F_Add addBias;
+   MyFloatAccum myAccum;
+   using(Linear2_NHWC) VWrite output;
+#   
+   {weights,features} -> muller:0..1;
+   muller -> myAccum;
+      
+   //myAccum -> output;
+
+   {myAccum,bias} -> addBias:0..1;
+   addBias -> output;
+}
+
+module Top_MatMul(){
+   using(Linear) VRead leftRow;
+   using(Linear) VRead rightRow;
+   F_Mul mat_muller;
+   MyFloatAccum myAccum;
+   using(LinearStrided) VWrite output;
+#
+   {leftRow,rightRow} -> mat_muller:0..1;
+   mat_muller -> myAccum;
+   myAccum -> output;
+}
+
+merge Test = Top_Add | Top_Relu | Top_Maxpool | Top_Conv | Top_AveragePool | Top_MatMul;

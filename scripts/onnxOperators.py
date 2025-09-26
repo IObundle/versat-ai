@@ -8,10 +8,11 @@ from versatDefs import (
     OnnxAttribute,
     OnnxAttributeType,
     OnnxOperatorSpec,
+    BroadcastType,
 )
 from enum import Enum, auto
 
-# TODO: I eventually want to start generating the C structs from the emitters defined here. Really clubersome to have to match
+# TODO: I eventually want to start generating the C structs from the emitters defined here. Really cumbersome to have to match
 #      the emitter code with the C code, any change requires to carefully interact with
 
 # TODO: Because Onnx supports variable sized tensors, we might want to start moving the tensors shape calculations to runtime.
@@ -81,12 +82,16 @@ def GetAttributesForOperator(op: Operation) -> dict[str, InstantiatedAttribute]:
         if name in op.parsedAttributes:
             res[name] = op.parsedAttributes[name]
         else:
+            if callable(attrType.defaultValue):
+                print("Callable default type")
+                assert False  # TODO: Need to implement this. Call the function with the operation and implement these functions to return the default value for the operation
+
             # For spatial axis attributes, calculate spatialAxes from output.
             if (
                 attrType.attrType == OnnxAttributeType.AXIS_LIST
                 or attrType.attrType == OnnxAttributeType.AXIS_PAIR_LIST
             ):
-                spatialAxes = len(op.outputDimensions) - 2
+                spatialAxes = 2 * (len(op.outputDimensions) - 2)
                 trueDefaultValue = [attrType.defaultValue] * spatialAxes
 
                 res[name] = InstantiatedAttribute(attrType, trueDefaultValue)
@@ -127,23 +132,65 @@ def EmitMaxPool(emitter, op: Operation):
     kernel = attr["kernel_shape"].value
     kernelShape = emitter.EmitArray("int", kernel)
 
-    dil = attr["dilations"].value
-    dilShape = emitter.EmitArray("int", dil)
+    stride = attr["strides"].value
+    strideShape = emitter.EmitArray("int", stride)
 
-    return [dims, inputShape, outputShape, len(kernel), kernelShape, len(dil), dilShape]
+    pads = attr["pads"].value
+    padsShape = emitter.EmitArray("int", pads)
+
+    return [
+        dims,
+        inputShape,
+        outputShape,
+        len(kernel),
+        kernelShape,
+        len(stride),
+        strideShape,
+        "PaddingType_" + attr["auto_pad"].value,
+        len(pads),
+        padsShape,
+    ]
 
 
 def EmitConv(emitter, op: Operation):
-    inputDim = len(op.inputDimensions[0])
+    dims = len(op.inputDimensions[0])
     inputShape = emitter.EmitArray("int64_t", op.inputDimensions[0])
-
-    kernelDim = len(op.inputDimensions[1])
-    kernelShape = emitter.EmitArray("int64_t", op.inputDimensions[1])
-
-    outDim = len(op.outputDimensions)
     outShape = emitter.EmitArray("int64_t", op.outputDimensions)
 
-    return [inputDim, inputShape, kernelDim, kernelShape, outDim, outShape]
+    attr = GetAttributesForOperator(op)
+
+    featureMaps = op.inputDimensions[1][0]
+
+    kernel = attr["kernel_shape"].value
+    kernelShape = emitter.EmitArray("int", kernel)
+
+    stride = attr["strides"].value
+    strideShape = emitter.EmitArray("int", stride)
+
+    dilations = attr["dilations"].value
+    dilationsShape = emitter.EmitArray("int", dilations)
+
+    pads = attr["pads"].value
+    padsShape = emitter.EmitArray("int", pads)
+
+    group = attr["group"].value
+
+    return [
+        dims,
+        inputShape,
+        outShape,
+        featureMaps,
+        len(kernel),
+        kernelShape,
+        len(stride),
+        strideShape,
+        len(dilations),
+        dilationsShape,
+        "PaddingType_" + attr["auto_pad"].value,
+        len(pads),
+        padsShape,
+        group,
+    ]
 
 
 def EmitReshape(emitter, op: Operation):
@@ -166,6 +213,26 @@ def EmitMatMul(emitter, op: Operation):
     aux_2 = emitter.EmitArray("int64_t", res)
 
     return [aux_0, len(op0), aux_1, len(op1), aux_2, len(res)]
+
+
+def EmitSoftmax(emitter, op: Operation):
+    dims = len(op.inputDimensions[0])
+    inputShape = emitter.EmitArray("int64_t", op.inputDimensions[0])
+    attr = GetAttributesForOperator(op)
+
+    return [inputShape, dims, attr["axis"]]
+
+
+def EmitTranspose(emitter, op: Operation):
+    dims = len(op.inputDimensions[0])
+    inputShape = emitter.EmitArray("int64_t", op.inputDimensions[0])
+
+    attr = GetAttributesForOperator(op)
+
+    perm = attr["perm"].value
+    permShape = emitter.EmitArray("int64_t", perm)
+
+    return [inputShape, dims, permShape, len(perm)]
 
 
 def IsOperatorRegistered(opName: str):
@@ -202,12 +269,32 @@ maxPoolAttributes = {
     "auto_pad": MakeAttrBoundedString(
         ["NOTSET", "SAME_UPPER", "SAME_LOWER", "VALID"], "NOTSET"
     ),
-    "ceil_mode": MakeAttrInteger(0),
-    "dilations": MakeAttrAxisList(1),
+    # "ceil_mode": MakeAttrInteger(0),
+    # "dilations": MakeAttrAxisList(1),
     "kernel_shape": MakeAttrIntegerList(None),
     "pads": MakeAttrAxisPairList(0),
-    "storage_order": MakeAttrBoundedInteger([0, 1], 0),
+    # "storage_order": MakeAttrBoundedInteger([0, 1], 0),
     "strides": MakeAttrAxisList(1),
+}
+
+averagePoolAttributes = {
+    "auto_pad": MakeAttrBoundedString(
+        ["NOTSET", "SAME_UPPER", "SAME_LOWER", "VALID"], "NOTSET"
+    ),
+    # "ceil_mode": MakeAttrInteger(0),
+    # "dilations": MakeAttrAxisList(1),
+    "kernel_shape": MakeAttrIntegerList(None),
+    "pads": MakeAttrAxisPairList(0),
+    # "storage_order": MakeAttrBoundedInteger([0, 1], 0),
+    "strides": MakeAttrAxisList(1),
+}
+
+softmaxAttributes = {"axis": MakeAttrInteger(-1)}
+
+transposeAttributes = {
+    "perm": MakeAttrIntegerList(
+        lambda x: x
+    )  # TODO: Implement this when needed. Basically receive an Operation and return the default value
 }
 
 
@@ -217,20 +304,24 @@ def GetOperatorSpec(opName):
 
 
 # Register new operators here
+# Remember, currently we only care about supporting up to version 7 operators.
 operatorNameToSpec = {}
-operatorNameToSpec["Add"] = OnnxOperatorSpec("Add", EmitAdd, True, False, [], True)
-operatorNameToSpec["Conv"] = OnnxOperatorSpec(
-    "Conv", EmitConv, False, False, convAttributes
+operatorNameToSpec["Add"] = OnnxOperatorSpec(
+    "Add", EmitAdd, [], True, BroadcastType.UNIDIRECTIONAL
 )
-operatorNameToSpec["Relu"] = OnnxOperatorSpec("Relu", EmitRelu, False, False, [], True)
+operatorNameToSpec["Conv"] = OnnxOperatorSpec("Conv", EmitConv, convAttributes, True)
+operatorNameToSpec["Relu"] = OnnxOperatorSpec("Relu", EmitRelu, [], True)
 operatorNameToSpec["MaxPool"] = OnnxOperatorSpec(
-    "MaxPool",
-    EmitMaxPool,
-    False,
-    False,
-    maxPoolAttributes,
+    "MaxPool", EmitMaxPool, maxPoolAttributes, True
 )
-operatorNameToSpec["Reshape"] = OnnxOperatorSpec(
-    "Reshape", EmitReshape, False, False, [], True
+operatorNameToSpec["Reshape"] = OnnxOperatorSpec("Reshape", EmitReshape, [], True)
+operatorNameToSpec["MatMul"] = OnnxOperatorSpec("MatMul", EmitMatMul, [], True)
+operatorNameToSpec["AveragePool"] = OnnxOperatorSpec(
+    "AveragePool", EmitMaxPool, averagePoolAttributes, True
 )
-operatorNameToSpec["MatMul"] = OnnxOperatorSpec("MatMul ", EmitMatMul, False, False)
+operatorNameToSpec["Softmax"] = OnnxOperatorSpec(
+    "Softmax", EmitSoftmax, softmaxAttributes, False
+)
+operatorNameToSpec["Transpose"] = OnnxOperatorSpec(
+    "Transpose", EmitTranspose, transposeAttributes, False
+)

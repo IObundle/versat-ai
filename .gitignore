@@ -3,9 +3,10 @@
 output
 python
 __pycache__
-tests
+tests/generated
 submodules/iob_versat
 software/*.bin
 software/src/code.c
 software/src/modelInfo.h
+software/src/testInfo.h
 *.bin

@@ -25,7 +25,9 @@ def RunVersat(versat_spec, versat_top, versat_extra, build_dir, axi_data_w, debu
             os.path.join(build_dir, "hardware", "src")
         ),  # Output hardware files
         "-O",
-        os.path.realpath(os.path.join(build_dir, "software")),  # Output software files
+        os.path.realpath(os.path.join(build_dir, "software")),
+        "-g",
+        os.path.realpath("../debug"),  # Output software files
     ]
 
     if debug_path:
@@ -45,7 +47,7 @@ def RunVersat(versat_spec, versat_top, versat_extra, build_dir, axi_data_w, debu
     print(errorOutput, file=sys.stderr)
 
     if returnCode != 0:
-        print("Failed to generate accelerator\n", file=sys.stderr)
+        print(f"Failed to generate accelerator {returnCode}\n", file=sys.stderr)
         exit(returnCode)
 
     lines = output.split("\n")
@@ -58,8 +60,9 @@ if __name__ == "__main__":
         output = RunVersat(
             "./versatSpec.txt", "Test", None, "./submodules/iob_versat", 32, None
         )
-    except:
-        print("Failed to generate Versat")
+    except Exception as e:
+        print("Failed to generate Versat:")
+        print(e)
         sys.exit(-1)
 
     try:

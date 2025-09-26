@@ -1,0 +1,12 @@
+// DESCRIPTION: Verilator output: Waivers generated with --waiver-output
+
+`verilator_config
+
+// Unused module outputs
+lint_off -rule PINCONNECTEMPTY -file "**/iob_fp_mul.v" -match "Cell pin connected by name with empty reference: 'sub_normal_o'"
+
+lint_off -rule PINCONNECTEMPTY -file "**/iob_fp_mul.v" -match "Cell pin connected by name with empty reference: 'sub_normal_o'"
+
+// Keep bits for full multiplication precision
+lint_off -rule UNUSEDSIGNAL -file "**/iob_fp_mul.v" -match "Bits of signal are not used: 'Temp_Mantissa'[19:0]"
+

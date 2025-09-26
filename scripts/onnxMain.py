@@ -16,6 +16,7 @@ from skl2onnx.helpers.onnx_helper import select_model_inputs_outputs
 from skl2onnx.helpers.onnx_helper import save_onnx_model
 from dataclasses import dataclass, field
 from functools import reduce
+from pprint import pprint
 
 import struct
 import numpy as np
@@ -44,21 +45,29 @@ def TensorSize(tensor: list[int]):
     return reduce(lambda x, y: x * y, tensor) * 4  # 4 because size of float
 
 
+def GetValueForDim(dim):
+    if dim.WhichOneof("value") == "dim_value":
+        return dim.dim_value
+    else:
+        # TODO: For now we convert all the variable sized expressions to 1
+        return 1  # dim.dim_param
+
+
 def GetShape(model, name):
     assert name  # Make sure that we got a name, onnx models contain a lot of members that contain optional names, which might work for some models and not others. Care
 
     for value in model.graph.output:
         if value.name == name:
-            return [x.dim_value for x in value.type.tensor_type.shape.dim]
+            return [GetValueForDim(x) for x in value.type.tensor_type.shape.dim]
     for value in model.graph.input:
         if value.name == name:
-            return [x.dim_value for x in value.type.tensor_type.shape.dim]
+            return [GetValueForDim(x) for x in value.type.tensor_type.shape.dim]
     for value in model.graph.value_info:
         if value.name == name:
-            return [x.dim_value for x in value.type.tensor_type.shape.dim]
+            return [GetValueForDim(x) for x in value.type.tensor_type.shape.dim]
     for value in model.graph.initializer:
         if value.name == name:
-            return value.dims
+            return [int(x) for x in value.dims]
 
     # NOTE: We want this function to be able to obtain all the shapes from a given name.
     #       Need to care with the fact that some onnx names are optional. All the names that this function check are mandatory
@@ -136,7 +145,8 @@ def GenerateModelFromOnnxModel(onnxModel):
 
     inputNames = []
     for value in onnxModel.graph.input:
-        shape = [x.dim_value for x in value.type.tensor_type.shape.dim]
+        shape = [GetValueForDim(x) for x in value.type.tensor_type.shape.dim]
+
         if not GetTensor(shaped, value.name):
             inputNames.append(Port(value.name, shape))
     cModel.modelInputs = inputNames
@@ -173,7 +183,9 @@ def GenerateModelFromOnnxModel(onnxModel):
                     spec, [int(x) for x in attribute.ints]
                 )
             elif spec.attrType == OnnxAttributeType.BOUNDED_STRING:
-                parsedAttribute = InstantiatedAttribute(spec, str(attribute.s))
+                parsedAttribute = InstantiatedAttribute(
+                    spec, attribute.s.decode("UTF-8")
+                )
             else:
                 assert False
 
@@ -304,6 +316,28 @@ class CDataEmitter:
         return content
 
 
+# Copied from onnxruntime/tools/python/remove_initializer_from_input.py
+def remove_initializer_from_input(model: onnx.ModelProto) -> bool:
+    if model.ir_version < 4:
+        print(
+            "Model with ir_version below 4 requires to include initializer in graph input"
+        )
+        return False
+
+    inputs = model.graph.input
+    name_to_input = {}
+    for input in inputs:
+        name_to_input[input.name] = input
+
+    modified = False
+    for initializer in model.graph.initializer:
+        if initializer.name in name_to_input:
+            modified = True
+            inputs.remove(name_to_input[initializer.name])
+
+    return modified
+
+
 def GenerateDebug(
     testLocation: str, modelName: str, binOutputLocation: str, sourceOutputLocation: str
 ):
@@ -318,6 +352,7 @@ def GenerateDebug(
     testModelLocation = os.path.join(testLocation, modelName)
 
     model = onnx.load(testModelLocation)
+    remove_initializer_from_input(model)
     model = AddOutputsToEachNode(model)
     onnx.checker.check_model(model)
 
@@ -362,6 +397,9 @@ def GenerateDebug(
     print("Test outputs match with the expected values")
 
     cModel = GenerateModelFromOnnxModel(model)
+
+    # pprint(cModel)
+    # sys.exit(0)
 
     # TODO: Implement multiple testcases by running the model multiple times and outputting multiple correct data bins.
     # NOTE: Is it possible for different testcases to generate different amounts of correctData? It shouldn't be possible.
@@ -486,10 +524,15 @@ def GenerateDebug(
             spec = GetOperatorSpec(c.opName)
             decider = "Software_" if not spec.generateVersatCode else "Versat_"
 
+            opName = c.opName
+            if opName == "Conv":
+                if len(c.inputs) == 3:
+                    opName = "ConvWithBias"
+
             f.write(
                 f"  void* res_{index} = "
                 + decider
-                + c.opName
+                + opName
                 + "("
                 + ",".join(content)
                 + f",{outputStr},{index},&{c.opName}Infos[{opIndex}]);\n"
@@ -501,6 +544,8 @@ def GenerateDebug(
         f.write("  return (InferenceOutput){};\n")
         f.write("}\n")
 
+    # pprint([x.inputDimensions for x in cModel.operations])
+    # sys.exit(0)
     with open(os.path.join(sourceOutputLocation, "modelInfo.h"), "w") as f:
         f.write("#pragma once\n")
         f.write(f"#define VERSAT_AI_OUTPUT_SIZE {cModel.outputMemoryNeeded}\n")
