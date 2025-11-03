@@ -67,17 +67,14 @@ if __name__ == "__main__":
 
     try:
         os.mkdir("./submodules/iob_versat/software/src/")
-    except:
+    except FileExistsError:
         pass  # Nothing if dir already exists
 
-    shutil.move(
-        "./submodules/iob_versat/software/versat_emul.c",
-        "./submodules/iob_versat/software/src/versat_emul.c",
-    )
-    shutil.move(
-        "./submodules/iob_versat/software/iob-versat.c",
-        "./submodules/iob_versat/software/src/iob_versat.c",
-    )
+    # Manual handling for coverage sources
+    cov_src = "./submodules/VERSAT/hardware/simulation/coverage"
+    cov_dst = "./submodules/iob_versat/hardware/simulation/coverage"
+    os.makedirs(cov_dst, exist_ok=True)
+    shutil.copytree(cov_src, cov_dst, dirs_exist_ok=True)
 
     with open("submodules/iob_versat/iob_versat.py", "w") as f:
         attributes_dict = {
@@ -156,10 +153,25 @@ if __name__ == "__main__":
             ],
         }
 
+        copy_coverage = r"""
+    # manual copy for coverage sources
+    if py_params_dict["build_dir"]:
+        cov_dir = "hardware/simulation/coverage"
+        dst = os.path.join(py_params_dict["build_dir"], cov_dir)
+        dst_dir = os.path.dirname(dst)
+        os.makedirs(dst_dir, exist_ok=True)
+        shutil.copytree(f"{os.path.dirname(__file__)}/{cov_dir}", dst, dirs_exist_ok=True)
+        # Hack for Nix: Files copied from Nix's py2hwsw package do not contain write permissions
+        os.system("chmod -R ug+w " + dst)"""
+
         f.write(
-            f"""
+            f"""import shutil
+import os
+
+
 def setup(py_params_dict):
     attributes_dict = {attributes_dict.__repr__()}
+{copy_coverage}
 
     return attributes_dict"""
         )

@@ -1,0 +1,9 @@
+// SPDX-FileCopyrightText: 2025 IObundle
+//
+// SPDX-License-Identifier: MIT
+
+// Relu verilator coverage waivers
+
+// waiver structure:
+// waive filename:line[:line] [reason]
+waive Relu.v:19 "Relu output is always positive, out0 MSB is always 0."

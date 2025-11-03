@@ -2,11 +2,11 @@
 #
 # SPDX-License-Identifier: MIT
 
-{ pkgs ? import (fetchTarball "https://github.com/NixOS/nixpkgs/archive/24.05.tar.gz") {} }:
+{ pkgs ? import (fetchTarball "https://github.com/NixOS/nixpkgs/archive/25.05.tar.gz") {} }:
 
 let
-  py2hwsw_commit = "e2c22b32d1fbe9b84a062f0236a7ae844cb2f4c6"; # Replace with the desired commit.
-  py2hwsw_sha256 = "X353g71S7vxafkmemzqrlJp2+dDLBBOIDQ3lQnjVNrQ="; # Replace with the actual SHA256 hash.
+  py2hwsw_commit = "7a590add2fd99cf8f03d0841f7f80e56ed41d809"; # Replace with the desired commit.
+  py2hwsw_sha256 = "jOGyxsRauH9jhGAbD9DgeyzRiRRMqG46QR/wRBuG6ms="; # Replace with the actual SHA256 hash.
   # Get local py2hwsw root from `PY2HWSW_ROOT` env variable
   py2hwswRoot = builtins.getEnv "PY2HWSW_ROOT";
 

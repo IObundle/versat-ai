@@ -120,6 +120,7 @@ python-cache-clean:
 
 # Use --fu-dir to list all FUs for linting
 VLINT_FLAGS += --fu-dir ./hardware/src
+VLINT_FLAGS += --fu-dir ./hardware/units
 VLINT_FLAGS += --fu-dir ./submodules/VERSAT/hardware/src/units
 # Use build directory to find all verilog sources and headers
 VLINT_FLAGS += -d ../versat_ai_V0.8/hardware/src
@@ -136,5 +137,9 @@ lint-fu: clean $(VERSAT_ACCEL)
 	python3 ./setupTest.py Generated
 	nix-shell --run "./scripts/verilog_linter.py $(VLINT_FLAGS) --fu $(FU)"
 	cat lint.rpt
+
+coverage-all-fus: clean $(VERSAT_ACCEL)
+	python3 ./setupTest.py Generated
+	nix-shell --run "make -C ../versat_ai_V0.8/hardware/simulation/coverage all"
 
 .PHONY: setup full-clean clean python-cache-clean

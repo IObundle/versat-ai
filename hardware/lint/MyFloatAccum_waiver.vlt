@@ -1,0 +1,7 @@
+// DESCRIPTION: Verilator output: Waivers generated with --waiver-output
+
+`verilator_config
+
+// Keep all bits for full precision
+lint_off -rule UNUSEDSIGNAL -file "**/MyFloatAccum.v" -match "Bits of signal are not used: 'nlzc'[8]*"
+

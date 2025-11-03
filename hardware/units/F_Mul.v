@@ -9,7 +9,6 @@ module F_Mul  #(
    input rst,
 
    input running,
-   input run,
 
    input [DATA_W-1:0] in0,
    input [DATA_W-1:0] in1,

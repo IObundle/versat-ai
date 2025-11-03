@@ -1,0 +1,15 @@
+// SPDX-FileCopyrightText: 2025 IObundle
+//
+// SPDX-License-Identifier: MIT
+
+// F_Mul verilator coverage waivers
+
+// waiver structure:
+// waive filename:line[:line] [reason]
+waive iob_fp_mul.v:25 "Start_i is always 1 for iob_fp_mul instance."
+waive iob_fp_mul.v:31:33 "Overflow, underflow, exception always 0, not implemented yet"
+waive iob_fp_mul.v:87 "A_Mantissa MSB always 1"
+waive iob_fp_mul.v:91 "B_Mantissa MSB always 1"
+
+waive iob_fp_round.v:31 "A_Mantissa and B_Mantissa MSB set to 1, makes impossible to toggle all lzc bits"
+waive iob_fp_clz.v:14 "A_Mantissa and B_Mantissa MSB set to 1, makes impossible to toggle all data_o bits"

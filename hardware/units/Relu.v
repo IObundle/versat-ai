@@ -7,7 +7,6 @@ module Relu
    input rst,
 
    input running,
-   input run,
 
    input [31:0] in0,
 

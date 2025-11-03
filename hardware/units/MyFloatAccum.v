@@ -3,9 +3,9 @@
 /* verilator lint_off WIDTH */
 
 module MyFloatAccum #(
-   parameter DATA_W = 32,
+   parameter DATA_W   = 32,
    parameter STRIDE_W = 16,
-   parameter DELAY_W = 7
+   parameter DELAY_W  = 7
 ) (
    //control
    input clk,
@@ -24,31 +24,37 @@ module MyFloatAccum #(
 );
 
    reg [31:0] delay;
+   wire [31:0] delay0_int, stride_int;
+   generate
+      if (DELAY_W < 32) begin : gen_pad_delay0
+         assign delay0_int = {{(32 - DELAY_W) {1'b0}}, delay0};
+      end else begin : gen_delay0
+         assign delay0_int = delay0;
+      end
+      if (STRIDE_W < 32) begin : gen_pad_stride
+         assign stride_int = {{(32 - STRIDE_W) {1'b0}}, strideMinusOne};
+      end else begin : gen_stride
+         assign stride_int = strideMinusOne;
+      end
+   endgenerate
 
    always @(posedge clk, posedge rst) begin
       if (rst) begin
          delay <= 0;
       end else if (run) begin
-         delay <= {25'h0,delay0};
+         delay <= delay0_int;
       end else if (|delay) begin
          delay <= delay - 1;
       end else begin
-         delay <= {16'b0,strideMinusOne};
+         delay <= stride_int;
       end
    end
 
-   wire doAccum = (delay == 0);
-
-   reg [278:0] res;
-
-   localparam MAN_W = 23;
-   localparam EXP_W = 8;
-   localparam BIAS = 2 ** (EXP_W - 1) - 1;
+   wire         doAccum = (delay == 0);
 
    wire [278:0] in0_decoded;
    reg  [278:0] accum;
-   reg  doAccum_2;
-   reg [31:0] valueUsedForAccumReset;
+   reg          doAccum_2;
 
    // Stage 1 - Decode in0
    FloatToLargeInteger conv (
@@ -56,17 +62,14 @@ module MyFloatAccum #(
       .out_o(in0_decoded)
    );
 
-   reg [DATA_W-1:0] in0_non_decoded_reg;
    reg [278:0] in0_decoded_reg;
    always @(posedge clk, posedge rst) begin
       if (rst) begin
-         doAccum_2 <= 0;
+         doAccum_2       <= 0;
          in0_decoded_reg <= 0;
-         in0_non_decoded_reg <= 0;
       end else if (running) begin
-         doAccum_2 <= doAccum;
+         doAccum_2       <= doAccum;
          in0_decoded_reg <= in0_decoded;
-         in0_non_decoded_reg <= in0;
       end
    end
 
@@ -74,11 +77,9 @@ module MyFloatAccum #(
    always @(posedge clk, posedge rst) begin
       if (rst) begin
          accum <= 0;
-         valueUsedForAccumReset <= 0;
       end else begin
          if (doAccum_2) begin
             accum <= in0_decoded_reg;
-            valueUsedForAccumReset <= in0_non_decoded_reg; 
          end else if (running) begin
             accum <= in0_decoded_reg + accum;
          end
@@ -103,12 +104,12 @@ module MyFloatAccum #(
       .data_o(nlzc)
    );
 
-   reg                             sign_reg;
-   reg                     [  7:0] exponent;
-   reg                     [278:0] accum_reg;
-   reg                     [278:0] accumNeg_reg;
+   reg          sign_reg;
+   reg  [  7:0] exponent;
+   reg  [278:0] accum_reg;
+   reg  [278:0] accumNeg_reg;
 
-   wire sign = accum[278];
+   wire         sign = accum[278];
 
    always @(posedge clk, posedge rst) begin
       if (rst) begin

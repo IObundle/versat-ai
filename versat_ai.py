@@ -3,12 +3,26 @@
 # SPDX-License-Identifier: MIT
 
 
-def setup(py_params_dict):
+def setup(py_params: dict):
     # Py2hwsw dictionary describing current core
     mem_addr_w = 20
     name = "versat_ai"
     addr_w = 32
     data_w = 32
+
+    # Set new default values for python parameters of iob_system (parent module)
+    # List of iob_system python parameters available at: https://github.com/IObundle/py2hwsw/blob/main/py2hwsw/lib/iob_system/iob_system.py
+    iob_system_default_overrides = {
+        "use_intmem": False,
+        "use_extmem": True,
+        "use_ethernet": False,
+        "mem_addr_w": mem_addr_w,
+        "include_tester": False,
+        "cpu": "iob_vexriscv",
+        "fw_addr_w": 19,
+    }
+
+    py_params = {**iob_system_default_overrides, **py_params}
 
     # setup custom xbar
     xbar_subblock = {
@@ -65,125 +79,109 @@ def setup(py_params_dict):
         num_managers += 1
     xbar_subblock["num_managers"] = num_managers
 
+    attributes_dict = {
+        "title": "Versat-AI System",
+        "description": "Accelerate AI Applications with Versat-AI.",
+        "board_list": [
+            "iob_aes_ku040_db_g",
+            "iob_cyclonev_gt_dk",
+            "iob_zybo_z7",
+        ],
+        "confs": [
+            # {   TODO: is this needed?
+            #     "name": "INT_MEM_HEXFILE",
+            #     "descr": "Firmware file name",
+            #     "type": "D",
+            #     "val": f'"{name}_firmware"',  # NOTE: The '"' inside are on purpose
+            #     "min": "NA",
+            #     "max": "NA",
+            # },
+            {
+                "name": "EXT_MEM_HEXFILE",
+                "descr": "Firmware file name",
+                "type": "D",
+                "val": f'"{name}_firmware"',  # NOTE: The '"' inside are on purpose
+                "min": "NA",
+                "max": "NA",
+            },
+        ],
+        "ports": [
+            {
+                # Add new rs232 port for uart
+                "name": "rs232_m",
+                "descr": "iob-system uart interface",
+                "signals": {
+                    "type": "rs232",
+                },
+            },
+            # NOTE: Add other ports here.
+        ],
+        "wires": [
+            {
+                "name": "versat_axi",
+                "descr": "Versat axi wires",
+                "signals": {
+                    "type": "axi",
+                    "prefix": "versat_",
+                    "ID_W": "AXI_ID_W",
+                    "ADDR_W": addr_w,
+                    "DATA_W": data_w,
+                    "LEN_W": "AXI_LEN_W",
+                    "LOCK_W": "1",
+                },
+            },
+        ],
+        "subblocks": [
+            xbar_subblock,
+            {
+                # Instantiate a UART core from: https://github.com/IObundle/py2hwsw/tree/main/py2hwsw/lib/hardware/iob_uart
+                "core_name": "iob_uart",
+                "instance_name": "UART0",
+                "instance_description": "UART peripheral",
+                "is_peripheral": True,
+                "parameters": {},
+                "connect": {
+                    "clk_en_rst_s": "clk_en_rst_s",
+                    # Cbus connected automatically
+                    "rs232_m": "rs232_m",
+                },
+            },
+            {
+                # Instantiate a TIMER core from: https://github.com/IObundle/py2hwsw/tree/main/py2hwsw/lib/hardware/iob_timer
+                "core_name": "iob_timer",
+                "instance_name": "TIMER0",
+                "instance_description": "Timer peripheral",
+                "is_peripheral": True,
+                "parameters": {},
+                "connect": {
+                    "clk_en_rst_s": "clk_en_rst_s",
+                    # Cbus connected automatically
+                },
+            },
+            {
+                "core_name": "iob_versat",
+                "instance_name": "VERSAT0",
+                "instance_description": "Versat accelerator",
+                "is_peripheral": True,
+                "parameters": {},
+                "connect": {"axi_out_m": "versat_axi"},
+            },
+            # NOTE: Add other components/peripherals here.
+        ],
+        "sw_modules": [
+            {
+                "core_name": "iob_coverage_analyze",
+                "instance_name": "iob_coverage_analyze_inst",
+            },
+        ],
+    }
+
     core_dict = {
         "version": "0.8",
         "parent": {
-            # IOb-SoC is a child core of iob_system: https://github.com/IObundle/py2hwsw/tree/main/py2hwsw/lib/hardware/iob_system
-            # IOb-SoC will inherit all attributes/files from the iob_system core.
             "core_name": "iob_system",
-            # Every parameter in the lines below will be passed to the iob_system parent core.
-            # Full list of parameters availabe here: https://github.com/IObundle/py2hwsw/blob/main/py2hwsw/lib/iob_system/iob_system.py
-            "use_intmem": False,
-            "use_extmem": True,
-            "mem_addr_w": mem_addr_w,
-            "include_tester": False,
-            "cpu": "iob_vexriscv",
-            # NOTE: Place other iob_system python parameters here
-            "system_attributes": {
-                # Every attribute in this dictionary will override/append to the ones of the iob_system parent core.
-                "board_list": [
-                    "iob_aes_ku040_db_g",
-                    "iob_cyclonev_gt_dk",
-                    "iob_zybo_z7",
-                ],
-                "title": "Versat-AI System",
-                "description": "Accelerate AI Applications with Versat-AI.",
-                "confs": [
-                    {  # Needed for software and makefiles
-                        "name": "MEM_ADDR_W",
-                        "descr": "External memory bus address width.",
-                        "type": "M",
-                        "val": mem_addr_w,
-                        "min": "0",
-                        "max": "32",
-                    },
-                    {
-                        "name": "FW_ADDR_W",
-                        "type": "M",
-                        "val": 19,
-                        "min": "0",
-                        "max": str(mem_addr_w),
-                    },
-                    {
-                        "name": "EXT_MEM_HEXFILE",
-                        "descr": "Firmware file name",
-                        "type": "D",
-                        "val": f'"{name}_firmware"',  # NOTE: The '"' inside are on purpose
-                        "min": "NA",
-                        "max": "NA",
-                    },
-                ],
-                "ports": [
-                    {
-                        # Add new rs232 port for uart
-                        "name": "rs232_m",
-                        "descr": "iob-system uart interface",
-                        "signals": {
-                            "type": "rs232",
-                        },
-                    },
-                    # NOTE: Add other ports here.
-                ],
-                "wires": [
-                    {
-                        "name": "versat_axi",
-                        "descr": "Versat axi wires",
-                        "signals": {
-                            "type": "axi",
-                            "prefix": "versat_",
-                            "ID_W": "AXI_ID_W",
-                            "ADDR_W": addr_w,
-                            "DATA_W": data_w,
-                            "LEN_W": "AXI_LEN_W",
-                            "LOCK_W": "1",
-                        },
-                    },
-                ],
-                "subblocks": [
-                    xbar_subblock,
-                    {
-                        # Instantiate a UART core from: https://github.com/IObundle/py2hwsw/tree/main/py2hwsw/lib/hardware/iob_uart
-                        "core_name": "iob_uart",
-                        "instance_name": "UART0",
-                        "instance_description": "UART peripheral",
-                        "is_peripheral": True,
-                        "parameters": {},
-                        "connect": {
-                            "clk_en_rst_s": "clk_en_rst_s",
-                            # Cbus connected automatically
-                            "rs232_m": "rs232_m",
-                        },
-                    },
-                    {
-                        # Instantiate a TIMER core from: https://github.com/IObundle/py2hwsw/tree/main/py2hwsw/lib/hardware/iob_timer
-                        "core_name": "iob_timer",
-                        "instance_name": "TIMER0",
-                        "instance_description": "Timer peripheral",
-                        "is_peripheral": True,
-                        "parameters": {},
-                        "connect": {
-                            "clk_en_rst_s": "clk_en_rst_s",
-                            # Cbus connected automatically
-                        },
-                    },
-                    {
-                        "core_name": "iob_versat",
-                        "instance_name": "VERSAT0",
-                        "instance_description": "Versat accelerator",
-                        "is_peripheral": True,
-                        "parameters": {},
-                        "connect": {"axi_out_m": "versat_axi"},
-                    },
-                    # NOTE: Add other components/peripherals here.
-                ],
-                "sw_modules": [
-                    {
-                        "core_name": "iob_coverage_analyze",
-                        "instance_name": "iob_coverage_analyze_inst",
-                    },
-                ],
-            },
-            **py_params_dict,
+            "system_attributes": attributes_dict,
+            **py_params,
         },
     }
 

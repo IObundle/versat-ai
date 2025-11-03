@@ -1,0 +1,9 @@
+// DESCRIPTION: Verilator output: Waivers generated with --waiver-output
+
+`verilator_config
+
+// Unused instance outputs
+lint_off -rule PINCONNECTEMPTY -file "**/F_Add.v" -match "Instance pin connected by name with empty reference: 'done_o'*"
+lint_off -rule PINCONNECTEMPTY -file "**/F_Add.v" -match "Instance pin connected by name with empty reference: 'overflow_o'*"
+lint_off -rule PINCONNECTEMPTY -file "**/F_Add.v" -match "Instance pin connected by name with empty reference: 'underflow_o'*"
+lint_off -rule PINCONNECTEMPTY -file "**/F_Add.v" -match "Instance pin connected by name with empty reference: 'exception_o'*"

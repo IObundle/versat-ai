@@ -4,7 +4,6 @@
 
 module F_AccumMax #(
    parameter DATA_W = 32,
-   parameter STRIDE_W = 16,
    parameter DELAY_W = 7
 ) (
    //control
@@ -14,11 +13,11 @@ module F_AccumMax #(
    input run,
    input running,
 
-   input [STRIDE_W-1:0] strideMinusOne,
+   input [DELAY_W-1:0] strideMinusOne,
 
    input [DATA_W-1:0] in0,
 
-   (* versat_latency = 1 *) output [31:0] out0,
+   (* versat_latency = 1 *) output [DATA_W-1:0] out0,
 
    input [DELAY_W-1:0] delay0
 );
@@ -39,7 +38,7 @@ end
 
 wire store = (delay == 0);
 
-reg [31:0] stored;
+reg [DATA_W-1:0] stored;
 
 wire [DATA_W-1:0] bigger  = (in0[DATA_W-1] ^ stored[DATA_W-1])? (in0[DATA_W-1]? stored: in0):
                                  in0[DATA_W-1]? ((in0[DATA_W-2:0] > stored[DATA_W-2:0])? stored: in0):
