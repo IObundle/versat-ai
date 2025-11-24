@@ -303,6 +303,28 @@ def GetOperatorSpec(opName):
     return operatorNameToSpec[opName]
 
 
+def OperationToFunctionName(op: Operation, useVersat: bool):
+    spec = GetOperatorSpec(op.opName)
+
+    decider = "Versat" if useVersat and spec.supportedByVersat else "Software"
+
+    name = op.opName
+    if op.opName == "Conv":
+        if len(op.inputs) == 3:
+            name = "ConvWithBias"
+
+    return f"{decider}_{name}"
+
+
+def OperationToLayerName(op: Operation, useVersat: bool):
+    spec = GetOperatorSpec(op.opName)
+
+    if useVersat and spec.supportedByVersat:
+        return f"Versat_{op.opName}"
+    else:
+        return op.opName
+
+
 # Register new operators here
 # Remember, currently we only care about supporting up to version 7 operators.
 operatorNameToSpec = {}

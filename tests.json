@@ -13,6 +13,14 @@
   "Keyword": {
     "type": "FIXED",
     "path": "./tests/keyword"
+  },
+  "VisualWake": {
+    "type": "FIXED",
+    "path": "./tests/visual_wake"
+  },
+  "All": {
+    "type": "FIXED_LIST",
+    "subTests": ["ToyCar","Image","Keyword","VisualWake"]
   }
 }
 

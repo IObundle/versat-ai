@@ -39,7 +39,7 @@ endif
 
 #default compiler settings
 TOOLCHAIN_PREFIX ?=riscv64-unknown-elf-
-CFLAGS ?=-Os -nostdlib -march=$(MFLAGS) -mabi=ilp32 --specs=nano.specs -Wcast-align=strict $(USER_CFLAGS)
+CFLAGS ?=-O2 -nostdlib -march=$(MFLAGS) -mabi=ilp32 --specs=nano.specs -Wcast-align=strict $(USER_CFLAGS)
 LFLAGS ?= -Wl,-L,src,-Bstatic,-T,$(TEMPLATE_LDS),--strip-debug
 LLIBS ?=-lgcc -lc -lnosys
 INCLUDES ?=-I. -Isrc
@@ -49,9 +49,9 @@ INCLUDES ?=-I. -Isrc
 #########################################
 
 # compiler flags
-EMUL_CFLAGS ?=-std=gnu99 -g -DPC #-fsanitize=address -static-libasan
+EMUL_CFLAGS ?=-std=gnu99 -O0 -g -DPC #-fsanitize=address -static-libasan
 
-CONSOLE_CMD ?=rm -f soc2cnsl cnsl2soc; ../scripts/console.py -L
+CONSOLE_CMD :=rm -f soc2cnsl cnsl2soc; ../scripts/console.py -L
 
 EMUL_INCLUDES ?=-I. -Isrc
 
@@ -61,8 +61,12 @@ EMUL_INCLUDES ?=-I. -Isrc
 
 build: $(UTARGETS)
 %.elf: $(TEMPLATE_LDS) $(HDR) $(SRC) $(EXTRA_SRC)
-	$(TOOLCHAIN_PREFIX)gcc -o $@ $(CFLAGS) $(LFLAGS) $(INCLUDES) $(SRC) $(EXTRA_SRC) $(LLIBS)
+	$(TOOLCHAIN_PREFIX)gcc -o $@ $(CFLAGS) -fPIC $(LFLAGS) $(INCLUDES) $(SRC) $(EXTRA_SRC) $(LLIBS)
 	$(TOOLCHAIN_PREFIX)objcopy -O binary $@ $(*F).bin
+
+versat_ai_boot.elf: $(TEMPLATE_LDS) $(HDR) $(SRC) $(EXTRA_SRC)
+	$(TOOLCHAIN_PREFIX)gcc -o $@ $(CFLAGS) -fPIC $(LFLAGS) $(INCLUDES) $(SRC) $(EXTRA_SRC) $(LLIBS)
+	$(TOOLCHAIN_PREFIX)objcopy -O binary $@ versat_ai_boot.bin
 
 ifneq ($(BOARD),)
 FPGA_TOOL:=$(shell find ../hardware/fpga -name $(BOARD) | cut -d"/" -f5)

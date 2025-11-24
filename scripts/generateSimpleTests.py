@@ -53,11 +53,6 @@ def CreateBinaryOpTest(op, leftShape, rightShape):
 
     maxDims = max(len(leftShape), len(rightShape))
 
-    # op0 = ExtendShape(leftShape, maxDims)
-    # op1 = ExtendShape(rightShape, maxDims)
-
-    # broadCastedShape = BroadCastShape(op0, op1)
-
     # Let onnx infer shape specifics
     outputShape = [None] * maxDims
 
@@ -266,11 +261,16 @@ def CreateConvolution(
     inputChannels = shape[1]
 
     if outputChannels % group != 0:
-        print("First", outputChannels, group)
-        return
-    if (outputChannels * group) % inputChannels != 0:
-        print("Second", outputChannels, group, inputChannels)
-        return
+        # print("First", outputChannels, group)
+        return False
+    if inputChannels % group != 0:
+        # print("Second")
+        return False
+
+    # if group != 1 and (outputChannels * group) % inputChannels != 0:
+    #    #print("Third", outputChannels, group, inputChannels)
+    #    return False
+    #    # assert False
 
     test = Test()
     test.shapes = [shape]
@@ -327,11 +327,34 @@ def CreateConvolution(
     randomArray0 = np.random.randn(*shape).astype(np.float32)
     randomArray1 = np.random.randn(*kernelShape).astype(np.float32)
 
+    linear = False
+
+    val = 1.0
+    if linear:
+        randomArray0 = np.zeros(shape).astype(np.float32)
+        for i, x in np.ndenumerate(randomArray0):
+            randomArray0[i] = val
+            val += 1.0
+
+        randomArray1 = np.zeros(kernelShape).astype(np.float32)
+        for i, x in np.ndenumerate(randomArray1):
+            randomArray1[i] = val
+            val += 1.0
+
     test.randomArrays = [randomArray0, randomArray1]
 
     if bias:
-        randomBias = np.random.randn(*[features]).astype(np.float32)
+        randomBias = np.random.randn(features).astype(np.float32)
+
+        if linear:
+            randomBias = np.zeros([features]).astype(np.float32)
+            for i, x in np.ndenumerate(randomBias):
+                randomBias[i] = val
+                val += 1.0
+
         test.randomArrays.append(randomBias)
+
+    # print(test.randomArrays)
 
     tests.append(test)
 
@@ -427,19 +450,108 @@ def CreateSoftmax(shape, axis=-1):
     tests.append(test)
 
 
-testAdd = True
-testRelu = False
-testReshape = False
-testMatMul = False
-testMaxPool = False
-testConv = False
-testAveragePool = False
-testSoftmax = False
-testTranspose = False
+def CreateBinaryOpDynamicTest(leftShape, rightShape, actualLeft, actualRight):
+    global tests
 
-testBig = False
+    maxDims = max(len(leftShape), len(rightShape))
 
-if __name__ == "__main__":
+    # Let onnx infer shape specifics
+    outputShape = [None] * maxDims
+
+    testIndex = len(tests)
+
+    test = Test()
+    test.shapes = [actualLeft, actualRight]
+
+    leftTensor = make_tensor_value_info(
+        GetInputTrueName(testIndex, 0), TensorProto.FLOAT, leftShape
+    )
+    rightTensor = make_tensor_value_info(
+        GetInputTrueName(testIndex, 1), TensorProto.FLOAT, rightShape
+    )
+
+    test.tensors = [leftTensor, rightTensor]
+    test.outputTensor = make_tensor_value_info(
+        GetOutputTrueName(testIndex), TensorProto.FLOAT, outputShape
+    )
+    test.node = make_node(
+        "Add",
+        [GetInputTrueName(testIndex, 0), GetInputTrueName(testIndex, 1)],
+        [GetOutputTrueName(testIndex)],
+    )
+
+    leftRandomArray = np.random.randn(*actualLeft).astype(np.float32)
+    rightRandomArray = np.random.randn(*actualRight).astype(np.float32)
+    test.randomArrays = [leftRandomArray, rightRandomArray]
+
+    tests.append(test)
+
+
+def GenerateSimpleTest(outputPath):
+    testComplexity = 0
+
+    testAdd = False
+    testRelu = False
+    testReshape = False
+    testSoftmax = False
+    testTranspose = False
+    testMatMul = False
+    testMaxPool = False
+    testAveragePool = False
+
+    testConv = False
+
+    testBig = False
+    generativeTests = False
+
+    if True:
+        n = 1  # Batches
+        c = 1  # Input channels
+        f = 1  # Output channels
+        hw = [4, 4]  # Image height and width
+        k = [2, 2]  # 2D Kernel
+        s = [2, 2]  # 2D Stride
+        d = [1, 1]  # 2D Dilations
+        g = 1  # Groups
+        b = False  # Use bias
+        p = "NOTSET"  # Padding Kind
+        pd = [0, 0, 0, 0]  # Actual padding used when NOTSET
+
+        # 0
+        CreateConvolution([n, c, hw[0], hw[1]], f, k, s, d, g, b, p, pd)
+        # 1
+        CreateConvolution([2, c, hw[0], hw[1]], f, k, s, d, g, b, p, pd)
+        # 2
+        CreateConvolution([n, 2, hw[0], hw[1]], f, k, s, d, g, b, p, pd)
+        # 3
+        CreateConvolution([n, c, hw[0], hw[1]], 2, k, s, d, g, b, p, pd)
+        # 4
+        # CreateConvolution([n, c, hw[0], hw[1]], f, [4, 4], s, d, g, b, p, pd)
+        # 5
+        # CreateConvolution([n, c, hw[0], hw[1]], f, k, s, d, g, b, p, pd)
+        # 6
+        # CreateConvolution([n, c, hw[0], hw[1]], f, k, s, d, g, b, p, pd)
+        # 7
+        # CreateConvolution([n, 2, hw[0], hw[1]], 2, k, s, d, 2, b, p, pd)
+        # 8
+        # CreateConvolution([n, c, hw[0], hw[1]], f, k, s, d, g, True, p, pd)
+        # 9
+        # CreateConvolution([n, 2, hw[0], hw[1]], 4, k, s, d, 2, b, p, pd)
+        # 10
+        # CreateConvolution([n, 4, hw[0], hw[1]], 2, k, s, d, 2, b, p, pd)
+        # CreateConvolution([n, 8, hw[0], hw[1]], 2, k, s, d, 2, b, p, pd)
+        # CreateConvolution([n, 8, hw[0], hw[1]], 4, k, s, d, 2, b, p, pd)
+        # CreateConvolution([n, 16, hw[0], hw[1]], 4, k, s, d, 2, b, p, pd)
+        # CreateConvolution([n, 16, hw[0], hw[1]], 8, k, s, d, 2, b, p, pd)
+        # CreateConvolution([n, 16, hw[0], hw[1]], 8, k, s, d, 4, b, p, pd)
+        # CreateConvolution([n, 16, hw[0], hw[1]], 8, k, s, d, 8, b, p, pd)
+        # CreateConvolution([n, 8, hw[0], hw[1]], 16, k, s, d, 8, b, p, pd)
+        # CreateConvolution([n, 4, hw[0], hw[1]], 16, k, s, d, 4, b, p, pd)
+        # CreateConvolution([n, 4, hw[0], hw[1]], 8, k, s, d, 4, b, p, pd)
+        # CreateConvolution([n, 4, hw[0], hw[1]], 12, k, s, d, 4, b, p, pd)
+        # CreateConvolution([n, 12, hw[0], hw[1]], 12, k, s, d, 4, b, p, pd)
+        # CreateConvolution([n, 12, hw[0], hw[1]], 8, k, s, d, 4, b, p, pd)
+
     if testSoftmax:
         # Softmax axis come in pairs.
         # If the dim is N, then the pairs are X and X - N.
@@ -557,9 +669,11 @@ if __name__ == "__main__":
         if testBig:
             CreateBinaryOpTest("MatMul", [100, 200], [200, 300])
 
+    # No padding                                           T  L  B  R
+    # CreateMaxPool([1, 1, 4, 3], [2, 2], [2, 2], "NOTSET", [0, 1, 0, 0])
     if testMaxPool:
         # All padding posibilities, mostly to test the window generation
-        # No padding                                           T  L  B  R
+        # Padding                                              T  L  B  R
         CreateMaxPool([1, 1, 4, 4], [2, 2], [2, 2], "NOTSET", [0, 0, 0, 0])
         CreateMaxPool([1, 1, 3, 4], [2, 2], [2, 2], "NOTSET", [1, 0, 0, 0])
         CreateMaxPool([1, 1, 4, 3], [2, 2], [2, 2], "NOTSET", [0, 1, 0, 0])
@@ -712,18 +826,21 @@ if __name__ == "__main__":
 
         # All padding posibilities, mostly to test the window generation
         # Input shape, features, kernel, stride, dilations, bias
-        if True:
+        if generativeTests or False:
             nP = [1, 2]
-            aP = [[3, 3], [5, 5], [7, 7]]
-            cP = [1, 3, 4, 6, 8]
-            fP = [1, 3, 4, 6, 8]
+            aP = [[3, 3], [5, 5], [16, 16]]
+            cP = [1, 3, 4, 6, 8, 16]
+            fP = [1, 3, 4, 6, 8, 16]
             kP = [[3, 3], [5, 5]]
-            sP = [[3, 3], [5, 5], [7, 7]]
+            sP = [[3, 3], [5, 5], [9, 9]]
             dP = [[1, 1]]
             bP = [False, True]
-            pP = [PaddingType("NOTSET", [1, 1, 1, 1])]
+            pP = [
+                PaddingType("NOTSET", [1, 1, 1, 1]),
+                PaddingType("NOTSET", [4, 2, 1, 6]),
+            ]
             # pP = [PaddingType("SAME_LOWER"), PaddingType("SAME_UPPER"), PaddingType("NOTSET",[1,1,1,1])]
-            gP = [1, 2, 3, 4]
+            gP = [1, 2, 3, 4, 8]
             # gP = [2]
 
             args = []
@@ -769,11 +886,10 @@ if __name__ == "__main__":
             # ConvArgs(batches=1, inputChannels=1, innerShape=[t, t], features=1, kernelShape=[1, 1], stride=[t, t], dilations=[1, 1], group=1, bias=False, pad=PaddingType(kind='SAME_LOWER', padding=None)).CreateConvolution()
 
             if False:
-                ind = 192
+                ind = 72
 
                 lastGood = args[ind - 1]
                 fail = args[ind]
-                # args[ind].pad = PaddingType("")
 
                 print("Good:", lastGood)
                 print("Bad:", fail)
@@ -782,7 +898,7 @@ if __name__ == "__main__":
                 for convArgs in args:
                     convArgs.CreateConvolution()
 
-        if False:
+        if testComplexity == 0 or False:
             CreateConvolution([1, 2, 2, 2], 2, [2, 2], [2, 2], [1, 1], 2)
             CreateConvolution([1, 2, 2, 2], 2, [2, 2], [2, 2], [1, 1], 2, True)
 
@@ -802,18 +918,18 @@ if __name__ == "__main__":
             # CreateConvolution([1, 4, 2, 2], 3, [2, 2], [2, 2], [1, 1], 4)
             # CreateConvolution([1, 4, 2, 2], 4, [2, 2], [2, 2], [1, 1], 3)
 
-        if False:
-            n = 1
-            c = 3
-            f = 16
+        n = 1
+        c = 3
+        f = 16
 
-            k = [3, 3]
-            s = [3, 3]
-            d = [1, 1]
-            b = False
-            p = "NOTSET"
-            g = 1
+        k = [3, 3]
+        s = [3, 3]
+        d = [1, 1]
+        b = False
+        p = "NOTSET"
+        g = 1
 
+        if testComplexity == 1 or False:
             #                                                  T  L  B  R
             CreateConvolution([n, c, 6, 6], f, k, s, d, g, b, p, [0, 0, 0, 0])
             CreateConvolution([n, c, 5, 6], f, k, s, d, g, b, p, [1, 0, 0, 0])
@@ -871,7 +987,7 @@ if __name__ == "__main__":
         # Different groups
         # CreateConvolution([1, 2, 4, 4], 1, [2, 2], [1, 1], d, 2)
 
-        if False:
+        if testComplexity == 1 or False:
             CreateConvolution(
                 [1, 1, 1, 1], 2, [5, 5], [5, 5], d, g, False, "SAME_UPPER"
             )
@@ -904,7 +1020,7 @@ if __name__ == "__main__":
             )
 
         # Adding bias
-        if False:
+        if testComplexity == 1 or False:
             CreateConvolution([1, 1, 3, 3], 1, [3, 3], [3, 3], d, g, True)
             CreateConvolution([1, 2, 3, 3], 1, [3, 3], [3, 3], d, g, True)
             CreateConvolution([1, 1, 3, 3], 2, [3, 3], [3, 3], d, g, True)
@@ -914,8 +1030,8 @@ if __name__ == "__main__":
             CreateConvolution([1, 1, 4, 9], 1, [2, 3], [2, 3], d, g, True)
             CreateConvolution([1, 1, 9, 4], 1, [3, 2], [3, 2], d, g, True)
 
-        if testBig:
-            CreateConvolution([1, 1, 100, 100], 1, [100, 100], [100, 100], d, g, True)
+        # if testComplexity == 2 or testBig or False:
+        #    CreateConvolution([1, 1, 100, 100], 1, [100, 100], [100, 100], d, g, True)
 
     allInputNodesAndValuesInOrder = []
     for x in tests:
@@ -943,7 +1059,6 @@ if __name__ == "__main__":
     shaped = onnx.shape_inference.infer_shapes(onnx_model)
     check_model(shaped)
 
-    outputPath = sys.argv[1]
     try:
         shutil.rmtree(outputPath)
     except:
@@ -982,3 +1097,7 @@ if __name__ == "__main__":
             f.write(asTensor.SerializeToString())
 
     save_onnx_model(shaped, os.path.join(outputPath, "model.onnx"))
+
+
+if __name__ == "__main__":
+    GenerateSimpleTest(sys.argv[1])

@@ -11,10 +11,6 @@ from onnxOperators import *
 from copy import copy
 
 from onnx import shape_inference
-from skl2onnx.helpers.onnx_helper import enumerate_model_node_outputs
-from skl2onnx.helpers.onnx_helper import select_model_inputs_outputs
-from skl2onnx.helpers.onnx_helper import save_onnx_model
-from dataclasses import dataclass, field
 from functools import reduce
 from pprint import pprint
 
@@ -24,12 +20,11 @@ import onnx
 
 import onnxruntime as ort
 
-from enum import Enum, auto
 from onnx import __version__, IR_VERSION
 from onnx.defs import onnx_opset_version
 from onnx import numpy_helper
 
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 
 # Nodes have either inputs from other nodes or initializers, which are the constant values embedded in the model.
@@ -49,8 +44,7 @@ def GetValueForDim(dim):
     if dim.WhichOneof("value") == "dim_value":
         return dim.dim_value
     else:
-        # TODO: For now we convert all the variable sized expressions to 1
-        return 1  # dim.dim_param
+        return dim.dim_param
 
 
 def GetShape(model, name):
@@ -128,6 +122,29 @@ def PackMultipleArrays(arrayList, endianess: Endianess = Endianess.NATIVE):
         data += PackArrayNoHeader(array)
 
     return PackedArrays(data, offsets)
+
+
+def RemoveContentExcept(packed: PackedArrays, indexesToPreserve: list[int]):
+    content = bytearray()
+
+    newOffsets = []
+    for index in indexesToPreserve:
+        offset = packed.offsets[index]
+
+        nextOffset = 0
+        if index + 1 < len(packed.offsets):
+            nextOffset = packed.offsets[index + 1]
+        else:
+            nextOffset = len(packed.data)
+
+        newOff = len(content)
+        content = content + packed.data[offset:nextOffset]
+        newOffsets.append(newOff)
+
+    if len(newOffsets):
+        return PackedArrays(content, newOffsets)
+    else:
+        return PackedArrays(bytearray(), [])
 
 
 def IndexOfNodeThatProducesOutput(cModel, outputName):
@@ -230,7 +247,92 @@ def GenerateModelFromOnnxModel(onnxModel):
         )
         cModel.operations.append(op)
 
-    CalculateMemoryAllocations(cModel)
+    for index, c in enumerate(cModel.operations):
+        c.outputIndex = index
+
+    # Calculate initializer position
+    initializersSeen = 0
+    for index, c in enumerate(cModel.operations):
+        for source in c.inputs:
+            if source.sourceType == DataSourceType.INITIALIZER:
+                source.index = initializersSeen
+                initializersSeen += 1
+            elif source.sourceType == DataSourceType.MODEL_INPUT:
+                for index, port in enumerate(cModel.modelInputs):
+                    if port.name == source.name:
+                        source.index = index
+            else:
+                source.index = IndexOfNodeThatProducesOutput(cModel, source.name)
+
+    allInputsShapes = sum([port.shape for port in cModel.modelInputs], [])
+
+    mapped = {}
+    for port in cModel.modelInputs:
+        for i, name in enumerate(port.shape):
+            if type(name) == str:
+                mapped[name] = True
+
+    for op in cModel.operations:
+        for inputs in op.inputDimensions:
+            for i, name in enumerate(inputs):
+                if type(name) == str:
+                    mapped[name] = True
+
+        for i, name in enumerate(op.outputDimensions):
+            if type(name) == str:
+                mapped[name] = True
+
+    for name in mapped.keys():
+        if name in allInputsShapes:
+            print(f"{name} is an input")
+        else:
+            print(f"{name} is not an input")
+
+    return cModel
+
+
+def GetModelFreeParameters(cModel):
+    params = {}
+
+    for port in cModel.modelInputs:
+        for i, name in enumerate(port.shape):
+            if type(name) == str:
+                params[name] = True
+
+    for op in cModel.operations:
+        for inputs in op.inputDimensions:
+            for i, name in enumerate(inputs):
+                if type(name) == str:
+                    params[name] = True
+
+        for i, name in enumerate(op.outputDimensions):
+            if type(name) == str:
+                params[name] = True
+
+    return params
+
+
+def RestrictModelFreeParameter(cModel, paramValue):
+    # TODO: Currently we force variable sizes to 1 in here
+    mapped = {}
+
+    for port in cModel.modelInputs:
+        for i, name in enumerate(port.shape):
+            if type(name) == str:
+                port.shape[i] = mapped.get(name, paramValue)
+                mapped[name] = port.shape[i]
+
+    for op in cModel.operations:
+        for inputs in op.inputDimensions:
+            for i, name in enumerate(inputs):
+                if type(name) == str:
+                    inputs[i] = mapped.get(name, paramValue)
+                    mapped[name] = inputs[i]
+
+        for i, name in enumerate(op.outputDimensions):
+            if type(name) == str:
+                op.outputDimensions[i] = mapped.get(name, paramValue)
+                mapped[name] = op.outputDimensions[i]
 
     return cModel
 
@@ -248,18 +350,6 @@ def RunModel(model: Model, inputs):
         outputs[index] = mappedOutputs[op.output]
 
     return ModelRunResult(outputs)
-
-
-@dataclass
-class CDataHandle:
-    index: int
-
-
-@dataclass
-class TypedArray:
-    dtype: str
-    data: list[any]
-    name: str = None
 
 
 class CDataEmitter:
@@ -294,7 +384,7 @@ class CDataEmitter:
             data = tarray.data
 
             content += (
-                f"{dtype} temp_{index}[] = "
+                f"static {dtype} temp_{index}[] = "
                 + "{"
                 + ",".join(ItemRepr(x) for x in data)
                 + "};\n"
@@ -307,7 +397,7 @@ class CDataEmitter:
             amount = len(tarray.data)
 
             content += (
-                f"{dtype} {name}[{amount}] = "
+                f"static {dtype} {name}[{amount}] = "
                 + "{"
                 + ",".join(ItemRepr(x) for x in data)
                 + "};\n"
@@ -338,9 +428,30 @@ def remove_initializer_from_input(model: onnx.ModelProto) -> bool:
     return modified
 
 
+# TODO: We are starting to accumulate a bunch of config flags and stuff is starting to get out of control
+#       We probably want to make a struct that combines all this configuration into a single place and even offer some helper functions to simplify stuff otherwise
+#       it becomes clubersome to interact with this. Furthermore we are starting to generate more stuff than we care about and that is not good. Only generate what you need otherwise
+#       firmware starts becoming too large and sim time starts becoming problematic and all that stuff.
 def GenerateDebug(
-    testLocation: str, modelName: str, binOutputLocation: str, sourceOutputLocation: str
+    testLocation: str,
+    modelName: str,
+    binOutputLocation: str,
+    sourceOutputLocation: str,
+    namespace: str,
+    focusLayer: int = None,
+    debugSoftware: bool = False,
 ):
+    # TODO: It would be better if we could check all the inputs for correctness.
+
+    if type(namespace) != str or not namespace.isidentifier():
+        print("Need a valid namespace name. Needs to follow identifier rules")
+        sys.exit(0)
+    if len(namespace) > 32:
+        print(
+            "Error, namespace cannot be larger than 32 bytes. Choose a more reasonable namespace name"
+        )
+        sys.exit(0)
+
     print(
         f"onnx.__version__={__version__!r}, opset={onnx_opset_version()}, IR_VERSION={IR_VERSION}"
     )
@@ -398,51 +509,103 @@ def GenerateDebug(
 
     cModel = GenerateModelFromOnnxModel(model)
 
-    # pprint(cModel)
-    # sys.exit(0)
+    freeParameters = GetModelFreeParameters(cModel)
+
+    if len(freeParameters) > 0:
+        # NOTE: Currently we assume that all free parameters are the same value.
+        #       All the testbenches that we have work on this assumption and I do not know if we can have a model where this assumption does not hold.
+        #       We are also assuming that we only have a single free parameter as input. Need to see a model where this assumption does not hold in order to
+        #       then decide on the proper way of progressing.
+        # assert len(freeParameters) <= 1
+
+        # We match the parameter to the input and then we instantiate the model with it. No runtime handling of free parameters
+        # We do not know it if we need to generate code that can handle this at runtime. Worry about it later, for now we need to make this work on the board first before handling stuff like that.
+        freeParameterValue = 1
+        for op in cModel.operations:
+            for inp in op.inputs:
+                if inp.sourceType == DataSourceType.MODEL_INPUT:
+                    inputIndex = inp.index
+                    inputDims = op.inputDimensions[inputIndex]
+
+                    inputShape = inputs[0].shape
+
+                    for index in range(len(inputShape)):
+                        if type(inputDims[index]) == str:
+                            freeParameterValue = inputShape[index]
+
+        cModel = RestrictModelFreeParameter(cModel, freeParameterValue)
 
     # TODO: Implement multiple testcases by running the model multiple times and outputting multiple correct data bins.
     # NOTE: Is it possible for different testcases to generate different amounts of correctData? It shouldn't be possible.
     result = RunModel(cModel, inputs)
     correctData = result.outputs
 
-    outputNameToNodeIndex = {}
-    ind = 0
-    for index, c in enumerate(cModel.operations):
-        outputNameToNodeIndex[c.output] = ind
-        ind += 1
-
     packedInputs = PackMultipleArrays(inputs)
     packedCorrectData = PackMultipleArrays(correctData)
     packedInitializers = PackMultipleArrays(cModel.initializers)
 
-    # Calculate initializer position
-    initializersSeen = 0
-    for index, c in enumerate(cModel.operations):
-        for source in c.inputs:
-            if source.sourceType == DataSourceType.INITIALIZER:
-                source.index = initializersSeen
-                initializersSeen += 1
-            elif source.sourceType == DataSourceType.MODEL_INPUT:
-                for index, port in enumerate(cModel.modelInputs):
-                    if port.name == source.name:
-                        source.index = index
-            else:
-                source.index = IndexOfNodeThatProducesOutput(cModel, source.name)
-                source.correctInputIndex = outputNameToNodeIndex[source.name]
+    if focusLayer != None and focusLayer >= 0:
+        op = cModel.operations[focusLayer]
+        cModel.operations = [op]
 
-    with open(os.path.join(sourceOutputLocation, "code.c"), "w") as f:
-        f.write('#include "versat_ai.h"\n')
-        f.write('#include "stdint.h"\n')
+        op.outputMemoryAddress = MemoryLocation(0, MemoryType.OUTPUT)
 
-        f.write(f"int numberLayers = {len(cModel.operations)};\n")
+        inputIndexes = []
+        nodeInputIndexes = []
+        initializersIndexes = []
+
+        newInputIndex = 0
+        newNodeInputIndex = 0
+        newInitializerIndex = 0
+        for inp in op.inputs:
+            if inp.sourceType == DataSourceType.MODEL_INPUT:
+                inputIndexes.append(inp.index)
+                inp.index = newInputIndex
+                newInputIndex += 1
+            if inp.sourceType == DataSourceType.NODE_INPUT:
+                nodeInputIndexes.append(inp.index)
+                inp.index = newNodeInputIndex
+                newNodeInputIndex += 1
+            if inp.sourceType == DataSourceType.INITIALIZER:
+                initializersIndexes.append(inp.index)
+                inp.index = newInitializerIndex
+                newInitializerIndex += 1
+
+        op.outputIndex = newNodeInputIndex
+        nodeInputIndexes.append(focusLayer)
+
+        packedInputs = RemoveContentExcept(packedInputs, inputIndexes)
+        packedCorrectData = RemoveContentExcept(packedCorrectData, nodeInputIndexes)
+        packedInitializers = RemoveContentExcept(
+            packedInitializers, initializersIndexes
+        )
+
+        if len(packedInputs.data) == 0:
+            cModel.modelInputs = []
+
+    CalculateMemoryAllocations(cModel)
+
+    for c in cModel.operations:
+        print(c.opName, c.inputDimensions)
+
+    debugging = True
+    with open(os.path.join(sourceOutputLocation, f"{namespace}_code.c"), "w") as f:
+        f.write('#include "versat_private.h"\n')
+        f.write('#include "stdint.h"\n\n')
+
+        f.write(f"static int numberLayers = {len(cModel.operations)};\n")
 
         layerInfo = []
+
         for index, c in enumerate(cModel.operations):
             outputSize = TensorSize(c.outputDimensions)
-            layerInfo.append("{" + f'"{c.nodeName}","{c.opName}",{outputSize}' + "}")
+            layerInfo.append(
+                "{"
+                + f'"{OperationToLayerName(c,not debugSoftware)}",{outputSize}'
+                + "}"
+            )
 
-        f.write("LayerInfo layers[] = {" + ",".join(layerInfo) + "};\n")
+        f.write("static LayerInfo layers[] = {" + ",".join(layerInfo) + "};\n")
 
         opcodeToOperationList = {}
         for index, c in enumerate(cModel.operations):
@@ -485,109 +648,168 @@ def GenerateDebug(
                 + "};\n"
             )
 
-        f.write("\n")
-        f.write(
-            "InferenceOutput DebugRunInference(void* outputMemory,void* temporaryMemory,void** inputs,void* modelMemory,void* correctInput){\n"
-        )
+        f.write(f"uint64_t {namespace}_time[{len(cModel.operations) + 1}];\n")
 
-        debugging = True
-        opSeen = {}
-        for index, c in enumerate(cModel.operations):
-            content = []
-            for inp in c.inputs:
-                if inp.sourceType == DataSourceType.INITIALIZER:
-                    content.append(
-                        f"OFFSET_PTR(modelMemory,{packedInitializers.offsets[inp.index]})"
-                    )
-                elif inp.sourceType == DataSourceType.MODEL_INPUT:
-                    content.append(f"inputs[{inp.index}]")
-                else:
-                    if debugging:
-                        content.append(
-                            f"OFFSET_PTR(correctInput,{packedCorrectData.offsets[inp.index]})"
-                        )
-                    else:
-                        content.append(f"res_{inp.index}")
-
-            outputStr = ""
-            if c.outputMemoryAddress.memType == MemoryType.TEMP:
-                outputStr = (
-                    f"OFFSET_PTR(temporaryMemory,{c.outputMemoryAddress.offset})"
+        def OutputFunction(debugging, fuctionName, useVersat, measureTime):
+            if debugging:
+                f.write(
+                    f"\nInferenceOutput {fuctionName}(void* outputMemory,void* temporaryMemory,void** inputs,void* modelMemory,void* correctInput)"
+                    + "{\n"
                 )
             else:
-                outputStr = f"OFFSET_PTR(outputMemory,{c.outputMemoryAddress.offset})"
-
-            opIndex = opSeen.get(c.opName, -1) + 1
-            opSeen[c.opName] = opIndex
-
-            # TODO: Just move spec to inside the operator and have the parse function initialize it.
-            spec = GetOperatorSpec(c.opName)
-            decider = "Software_" if not spec.generateVersatCode else "Versat_"
-
-            opName = c.opName
-            if opName == "Conv":
-                if len(c.inputs) == 3:
-                    opName = "ConvWithBias"
-
-            f.write(
-                f"  void* res_{index} = "
-                + decider
-                + opName
-                + "("
-                + ",".join(content)
-                + f",{outputStr},{index},&{c.opName}Infos[{opIndex}]);\n"
-            )
-            if debugging and (IsOperatorRegistered(c.opName)):
                 f.write(
-                    f"  AssertAlmostEqual(res_{index},OFFSET_PTR(correctInput,{packedCorrectData.offsets[index]}),{index});\n"
+                    f"\nInferenceOutput {fuctionName}(void* outputMemory,void* temporaryMemory,void** inputs,void* modelMemory)"
+                    + "{\n"
                 )
-        f.write("  return (InferenceOutput){};\n")
-        f.write("}\n")
 
-    # pprint([x.inputDimensions for x in cModel.operations])
-    # sys.exit(0)
-    with open(os.path.join(sourceOutputLocation, "modelInfo.h"), "w") as f:
+            opSeen = {}
+            for index, c in enumerate(cModel.operations):
+                content = []
+                for inp in c.inputs:
+                    if inp.sourceType == DataSourceType.INITIALIZER:
+                        content.append(
+                            f"OFFSET_PTR(modelMemory,{packedInitializers.offsets[inp.index]})"
+                        )
+                    elif inp.sourceType == DataSourceType.MODEL_INPUT:
+                        content.append(f"inputs[{inp.index}]")
+                    else:
+                        if debugging:
+                            content.append(
+                                f"OFFSET_PTR(correctInput,{packedCorrectData.offsets[inp.index]})"
+                            )
+                        else:
+                            content.append(f"res_{inp.index}")
+
+                outputStr = ""
+                if c.outputMemoryAddress.memType == MemoryType.TEMP:
+                    outputStr = (
+                        f"OFFSET_PTR(temporaryMemory,{c.outputMemoryAddress.offset})"
+                    )
+                else:
+                    outputStr = (
+                        f"OFFSET_PTR(outputMemory,{c.outputMemoryAddress.offset})"
+                    )
+
+                functionName = OperationToFunctionName(c, useVersat)
+
+                opIndex = opSeen.get(c.opName, -1) + 1
+                opSeen[c.opName] = opIndex
+                if debugging:
+                    f.write(f'  versat_printf("Gonna run layer {index}\\n");\n')
+
+                if measureTime:
+                    f.write(f"  {namespace}_time[{index}] = versat_time();\n")
+
+                f.write(
+                    f"  void* res_{index} = "
+                    + functionName
+                    + "("
+                    + ",".join(content)
+                    + f",{outputStr},{index},&{c.opName}Infos[{opIndex}]);\n"
+                )
+                if debugging and (IsOperatorRegistered(c.opName)):
+                    f.write(
+                        f"  AssertAlmostEqual(res_{index},OFFSET_PTR(correctInput,{packedCorrectData.offsets[c.outputIndex]}),{index},&layers[{index}]);\n"
+                    )
+
+            if measureTime:
+                f.write(
+                    f"  {namespace}_time[{len(cModel.operations)}] = versat_time();\n"
+                )
+
+            f.write("  return (InferenceOutput){};\n")
+            f.write("}\n")
+
+        #              debugging, fuctionName, useVersat, measureTime
+        OutputFunction(False, f"{namespace}_SoftwareRunInference", False, True)
+        OutputFunction(False, f"{namespace}_VersatRunInference", True, True)
+        OutputFunction(True, f"{namespace}_DebugRunInference", not debugSoftware, False)
+
+    correctDataSize = 0
+    inputSize = 0
+
+    if debugging:
+        correctDataSize = len(packedCorrectData.data)
+        inputSize = len(cModel.modelInputs)
+
+    with open(os.path.join(sourceOutputLocation, f"{namespace}_modelInfo.h"), "w") as f:
         f.write("#pragma once\n")
-        f.write(f"#define VERSAT_AI_OUTPUT_SIZE {cModel.outputMemoryNeeded}\n")
-        f.write(f"#define VERSAT_AI_TEMP_SIZE {cModel.tempMemoryNeeded}\n")
-        f.write(f"#define VERSAT_AI_MODEL_SIZE {len(packedInitializers.data)}\n")
-        f.write(f"#define VERSAT_AI_CORRECT_SIZE {len(packedCorrectData.data)}\n")
-        f.write(f"#define VERSAT_AI_N_INPUTS {len(cModel.modelInputs)}\n")
 
-        inputSizes = [TensorSize(x.shape) for x in cModel.modelInputs]
-        inputOffsets, totalInputSize = CalculateOffsetFromSize(inputSizes)
+        f.write('#include "versat_ai.h"\n\n')
 
-        for index, size in enumerate(inputSizes):
-            f.write(f"#define VERSAT_AI_INPUT_{index}_SIZE {size}\n")
+        totalInputSize = 0
+        inputOffsets = [0]
+        inputSizes = [0]
 
-        f.write(f"#define VERSAT_AI_ALL_INPUTS_SIZE {totalInputSize}\n")
+        if len(cModel.modelInputs) > 0:
+            inputSizes = [TensorSize(x.shape) for x in cModel.modelInputs]
+            inputOffsets, totalInputSize = CalculateOffsetFromSize(inputSizes)
 
-        f.write("const int VERSAT_AI_INPUT_OFFSET[] = {")
-        f.write(",".join([str(x) for x in inputOffsets]))
+        f.write(f"static const int {namespace}_INPUT_SIZE[] = " + "{")
+        f.write(",".join([str(x) for x in inputSizes]))
         f.write("};\n")
 
+        f.write(f"static const int {namespace}_INPUT_OFFSET[] = " + "{")
+        f.write(",".join([str(x) for x in inputOffsets]))
+        f.write("};\n\n")
+
+        f.write(f"extern uint64_t {namespace}_time[];\n")
+
+        f.write(
+            f"InferenceOutput {namespace}_SoftwareRunInference(void *outputMemory, void *temporaryMemory,void **inputs, void *modelMemory);\n"
+            f"InferenceOutput {namespace}_VersatRunInference(void *outputMemory, void *temporaryMemory,void **inputs, void *modelMemory);\n"
+            f"InferenceOutput {namespace}_DebugRunInference(void *outputMemory, void *temporaryMemory,void **inputs, void *modelMemory,void *correctInput);\n\n"
+        )
+
+        f.write(f"static TestModelInfo {namespace}_ModelInfo = " + "{\n")
+        f.write(f"  .outputSize = {cModel.outputMemoryNeeded},\n")
+        f.write(f"  .tempSize = {cModel.tempMemoryNeeded},\n")
+        f.write(f"  .modelSize = {len(packedInitializers.data)},\n")
+        f.write(f"  .correctSize = {correctDataSize},\n")
+        f.write(f"  .totalInputSize = {totalInputSize},\n")
+
+        f.write(f'  .nameSpace = "{namespace}",\n')
+
+        f.write(f"  .inputCount = {inputSize},\n")
+        f.write(f"  .inputSizes = {namespace}_INPUT_SIZE,\n")
+        f.write(f"  .inputOffsets = {namespace}_INPUT_OFFSET,\n")
+
+        f.write(f"  .operatorCount = {len(cModel.operations)},\n")
+        f.write(f"  .timeMeasurements = {namespace}_time,\n")
+
+        f.write(f"  .softwareInferenceFunction = {namespace}_SoftwareRunInference,\n")
+        f.write(f"  .versatInferenceFunction = {namespace}_VersatRunInference,\n")
+        f.write(f"  .debugInferenceFunction = {namespace}_DebugRunInference\n")
+        f.write("};\n")
     try:
         os.makedirs(binOutputLocation)
     except:
         pass
 
-    with open(os.path.join(binOutputLocation, "inputs.bin"), "wb") as f:
-        f.write(packedInputs.data)
+    if debugging:
+        with open(
+            os.path.join(binOutputLocation, f"{namespace}_inputs.bin"), "wb"
+        ) as f:
+            f.write(packedInputs.data)
 
-    with open(os.path.join(binOutputLocation, "correctOutputs.bin"), "wb") as f:
-        f.write(packedCorrectData.data)
+        with open(
+            os.path.join(binOutputLocation, f"{namespace}_correctOutputs.bin"), "wb"
+        ) as f:
+            f.write(packedCorrectData.data)
 
-    with open(os.path.join(binOutputLocation, "model.bin"), "wb") as f:
+    with open(os.path.join(binOutputLocation, f"{namespace}_model.bin"), "wb") as f:
         f.write(packedInitializers.data)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 5:
+    if len(sys.argv) < 6:
         print(
-            "Error, script requires 4 parameters, <testLocation> <modelName> <binOutputLocation> <sourceOutputLocation>"
+            "Error, script requires 5 parameters, <testLocation> <modelName> <binOutputLocation> <sourceOutputLocation> <namespaceName>"
         )
         sys.exit(0)
-    GenerateDebug(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
+    GenerateDebug(
+        sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], None, namespaceName
+    )
 
 # TODO: Need to take care with alignment issues. Embedded usually cannot handle misaligned data.
 

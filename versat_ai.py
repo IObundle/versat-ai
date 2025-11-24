@@ -5,7 +5,8 @@
 
 def setup(py_params: dict):
     # Py2hwsw dictionary describing current core
-    mem_addr_w = 20
+    mem_addr_w = 26
+    system_w = mem_addr_w
     name = "versat_ai"
     addr_w = 32
     data_w = 32
@@ -15,11 +16,11 @@ def setup(py_params: dict):
     iob_system_default_overrides = {
         "use_intmem": False,
         "use_extmem": True,
-        "use_ethernet": False,
+        "use_ethernet": True,
         "mem_addr_w": mem_addr_w,
         "include_tester": False,
         "cpu": "iob_vexriscv",
-        "fw_addr_w": 19,
+        "fw_addr_w": mem_addr_w,
     }
 
     py_params = {**iob_system_default_overrides, **py_params}
@@ -40,12 +41,13 @@ def setup(py_params: dict):
             "s0_axi_s": "cpu_ibus",
             "s1_axi_s": "cpu_dbus",
             "s2_axi_s": "versat_axi",
+            "s3_axi_s": "eth_axi",
             # Manager interfaces connected below
         },
         "addr_w": addr_w,
         "data_w": data_w,
         "lock_w": 1,
-        "num_subordinates": 3,
+        "num_subordinates": 4,
     }
     xbar_manager_interfaces = {
         "use_extmem": (
@@ -83,9 +85,9 @@ def setup(py_params: dict):
         "title": "Versat-AI System",
         "description": "Accelerate AI Applications with Versat-AI.",
         "board_list": [
-            "iob_aes_ku040_db_g",
-            "iob_cyclonev_gt_dk",
-            "iob_zybo_z7",
+            "iob_aes_ku040_db_g"
+            # "iob_cyclonev_gt_dk",
+            # "iob_zybo_z7",
         ],
         "confs": [
             # {   TODO: is this needed?

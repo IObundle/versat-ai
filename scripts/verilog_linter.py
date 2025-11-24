@@ -159,13 +159,15 @@ def modules_from_dict(fu_dirs: list[str]) -> list[str]:
             continue
 
         # regex: find all text between 'module' and 'endmodule'
+        # 'module' starts at begining of a line
+        # re.MULTILINE checks pattern for multiple lines
         # re.DOTALL makes '.' match newlines as well
-        pattern = r"\bmodule\b(.*?)\bendmodule\b"
+        pattern = r"^[ \t]*module\b(.*?)\bendmodule\b"
         for vfile in v_files:
             modules = []
             with open(vfile, "r") as file:
                 content = file.read()
-                modules = re.findall(pattern, content, re.DOTALL)
+                modules = re.findall(pattern, content, re.MULTILINE | re.DOTALL)
                 for m in modules:
                     fus_to_lint.append(m.split()[0])
 

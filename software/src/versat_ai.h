@@ -1,221 +1,78 @@
 #ifndef INCLUDED_VERSAT_AI
 #define INCLUDED_VERSAT_AI
 
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
-// Memory is allocated by the user.
+// NOTE: All these functions are used to set Versat specific functions that are
+// defined by the firmware
+//       All of them return the previously set function and by default they are
+//       initialized with dummy functions that do not perform any action
 
-// TODO: This should not be here, we do not want to polute user space with our
-// code.
-#define OFFSET_PTR(PTR, OFFSET) ((void *)(((char *)PTR) + OFFSET))
+// Call this function with a valid function that is fast and returns some form
+// of time measurement (application specific, Versat does not care about this
+// result)
+typedef uint64_t (*MeasureTimeFunction)();
+MeasureTimeFunction Versat_SetTimeMeasurementFunction(MeasureTimeFunction func);
 
-#define MAX_DIMS 6
+// Versat will not print any debug messages unless this is set beforehand.
+typedef int (*PrintFunction)(const char *name, ...);
+PrintFunction Versat_SetPrintFunction(PrintFunction func);
 
-// TODO: Remove this.
-// What we should have is a function that goes:
-// OutputInfo GetOutput(void* output,int index);
-// That not only fixes the output to the correct address but also fills it with
-// some information.
+// Clear cache starting from ptr and spaning size bytes
+// Depending on the architecture of the embedded system this might not be
+// required or it might be essential.
+typedef void (*ClearCache)(void *ptr, size_t size);
+ClearCache Versat_SetClearCache(ClearCache func);
 
-typedef struct {
-  int64_t data[MAX_DIMS];
-  int size;
-} Dimensions;
-
-Dimensions CreateDimensions(int64_t *dims, int numberDims);
-int Dimensions_Size(Dimensions dim);
-
-typedef struct {
-  Dimensions dims;
-  float *data;
-} Tensor;
-
-// NOTE: Very important. We are currently allocating stuff but we will
-// eventually remove all the memory allocations and push them to outside this
-// code. We want to offer a very simple "allocate x amount of space before
-// starting our code" model of usage since this is intented to run on embedded
-// targets.
-Tensor CreateTensor(int64_t *dims, int numberDims);
-Tensor CreateTensor_NoAllocate(int64_t *dims, int numberDims);
-Tensor Tensor_Transpose(Tensor in, int *index);
-void Tensor_Print(Tensor tensor);
-void FreeTensor(Tensor tensor);
-
-typedef struct {
-  int offsetAddressVars[MAX_DIMS];
-  int addressVars[MAX_DIMS];
-  int64_t properDims[MAX_DIMS];
-
-  int64_t iterationDims[MAX_DIMS];
-  int numberDims;
-} AddressGen;
-
-void Address_Print(AddressGen *gen);
-int Address_GetValue(AddressGen *gen);
-bool Address_IsValid(AddressGen *gen);
-void Address_Advance(AddressGen *gen);
-void Address_AdvanceAxis(AddressGen *gen, int axisToAdvance);
-AddressGen StartAddress(int64_t *iterationDims, int64_t *properDims,
-                        int numberDims);
+// TODO: Still need to figure out how to make this work, we could just allocate
+// some output memory and store the array inside it.
 typedef struct {
   int numberOfOutputs;
   void **outputLocation; // outputLocation[N] gives the address of the N output.
 } InferenceOutput;
 
+typedef InferenceOutput (*InferenceFunction)(void *outputMemory,
+                                             void *temporaryMemory,
+                                             void **inputs, void *modelMemory);
+
+typedef InferenceOutput (*DebugInferenceFunction)(void *outputMemory,
+                                                  void *temporaryMemory,
+                                                  void **inputs,
+                                                  void *modelMemory,
+                                                  void *correctInput);
+
+// TODO: Remember, we do not want to force user to have to deal with this stuff
+// at runtime (unless it is mandatory somewhat).
+//       We want stuff to be inside defines and compile time expressions so that
+//       user side can instantiate this stuff at compile time if needed. Even
+//       when implementing models with parameters, we want to use function
+//       defines rather than force user to calculate this stuff at compile time.
 typedef struct {
-  const char *name;
-  const char *typeName;
-  size_t outputSize;
-} LayerInfo;
+  int outputSize;
+  int tempSize;
+  int modelSize;
+  int correctSize;
+  int totalInputSize;
 
-typedef struct {
-  // Extra info to help
-  int maxDims;
-  int64_t *firstInputDim;
-  int64_t *secondInputDim;
-  int64_t *broadCastedShape;
-} AddInfo;
+  const char *nameSpace;
 
-typedef struct {
-  int dims;
-  int64_t *inputDims;
-} ReluInfo;
+  int inputCount;
+  const int *inputSizes;
+  const int *inputOffsets;
 
-typedef enum {
-  PaddingType_NOTSET,
-  PaddingType_SAME_UPPER,
-  PaddingType_SAME_LOWER,
-  PaddingType_VALID
-} PaddingType;
+  int operatorCount;
 
-typedef struct {
-  int dims;
-  int64_t *inputDims;
-  int64_t *outputDims;
-  int kernelSize;
-  int *kernelDims;
-  int strideSize;
-  int *strideDims;
-  PaddingType padding;
-  int padsSize;
-  int *padsDims;
-} MaxPoolInfo;
+  // Set after calling any InferenceFunction (DebugInferenceFunction does not
+  // set this) Measurements are in the form x[i] = time(); layerI(); x[i+1] =
+  // time(); Meaning that in order to calculate the time taken by layerI we need
+  // to calculate x[i+1] - x[i] afterwards Also meaning that we have
+  // (operatorCount + 1) total measurements.
+  uint64_t *timeMeasurements;
 
-typedef struct {
-  int dims;
-  int64_t *inputDims;
-  int64_t *outputDims;
-  int kernelSize;
-  int *kernelDims;
-  int strideSize;
-  int *strideDims;
-  PaddingType padding;
-  int padsSize;
-  int *padsDims;
-} AveragePoolInfo;
-
-typedef struct {
-  int dims;
-  int64_t *inputDims;
-  int64_t *outputDims;
-  int featureMaps;
-  int kernelSize;
-  int *kernelDims;
-  int strideSize;
-  int *strideDims;
-  int dilationsSize;
-  int *dilationsDims;
-  PaddingType padding;
-  int padsSize;
-  int *padsDims;
-  int group;
-} ConvInfo;
-
-typedef struct {
-  int64_t *inputDims;
-  int numberInputDims;
-  int numberShapeDims;
-} ReshapeInfo;
-
-typedef struct {
-  int64_t *inputADims;
-  int numberInputADims;
-  int64_t *inputBDims;
-  int numberInputBDims;
-  int64_t *outputDims;
-  int numberOutputDims;
-} MatMulInfo;
-
-typedef struct {
-  int64_t *inputDims;
-  int numberInputDims;
-  int axis;
-} SoftmaxInfo;
-
-typedef struct {
-  int64_t *inputDims;
-  int numberInputDims;
-  int64_t *perm;
-  int permSize;
-} TransposeInfo;
-
-extern LayerInfo layers[];
-extern int numberLayers;
-
-// Software implementations
-void *Software_Conv(void *inputX, void *inputW, void *output, int index,
-                    ConvInfo *info);
-void *Software_ConvWithBias(void *inputX, void *inputW, void *inputB,
-                            void *output, int index, ConvInfo *info);
-void *Software_Reshape(void *data, void *shape, void *output, int index,
-                       ReshapeInfo *info);
-void *Software_Transpose(void *inputA, void *output, int index,
-                         TransposeInfo *info);
-void *Software_Add(void *inputA, void *inputB, void *output, int index,
-                   AddInfo *info);
-void *Software_Relu(void *inputX, void *output, int index, ReluInfo *info);
-void *Software_MaxPool(void *inputX, void *output, int index,
-                       MaxPoolInfo *info);
-void *Software_AveragePool(void *inputX, void *output, int index,
-                           AveragePoolInfo *info);
-void *Software_MatMul(void *inputA, void *inputB, void *output, int index,
-                      MatMulInfo *info);
-void *Software_Softmax(void *inputA, void *output, int index,
-                       SoftmaxInfo *info);
-
-// Accelerator implementations
-void *Versat_Add(void *inputA, void *inputB, void *output, int index,
-                 AddInfo *info);
-
-void *Versat_Relu(void *inputA, void *output, int index, ReluInfo *info);
-
-void *Versat_Reshape(void *data, void *shape, void *output, int index,
-                     ReshapeInfo *info);
-void *Versat_MaxPool(void *inputX, void *output, int index, MaxPoolInfo *info);
-void *Versat_AveragePool(void *inputX, void *output, int index,
-                         AveragePoolInfo *info);
-void *Versat_Conv(void *inputX, void *inputW, void *output, int index,
-                  ConvInfo *info);
-void *Versat_ConvWithBias(void *inputX, void *inputW, void *inputB,
-                          void *output, int index, ConvInfo *info);
-void *Versat_MatMul(void *inputA, void *inputB, void *output, int index,
-                    MatMulInfo *info);
-void *Versat_Softmax(void *inputA, void *output, int index, SoftmaxInfo *info);
-
-void AssertAlmostEqual(void *toTest, void *correctValues, int index);
-
-int64_t CalculateSizeOfDim(int64_t *dim, int dims);
-
-// Output and Temporary memory must be allocated by the user. Call the
-// GetXXXMemorySize functions to obtain the amount of memory required. Model
-// memory is memory that contains a loaded model (provided by a binary file that
-// must be read at runtime).
-InferenceOutput RunInference(void *outputMemory, void *temporaryMemory,
-                             void **inputs, void *modelMemory);
-InferenceOutput DebugRunInference(void *outputMemory, void *temporaryMemory,
-                                  void **inputs, void *modelMemory,
-                                  void *correctInput);
+  InferenceFunction softwareInferenceFunction;
+  InferenceFunction versatInferenceFunction;
+  DebugInferenceFunction debugInferenceFunction;
+} TestModelInfo;
 
 #endif // INCLUDED_VERSAT_AI

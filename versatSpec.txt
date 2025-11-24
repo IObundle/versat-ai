@@ -1,30 +1,30 @@
 addressGen DataSimple(xWidth,yWidth,zWidth,aWidth,bWidth,cWidth){
-   for c 0..cWidth
-   for b 0..bWidth
-   for a 0..aWidth
-   for z 0..zWidth
-   for y 0..yWidth
-   for x 0..xWidth
+   for c 0..cWidth:
+   for b 0..bWidth:
+   for a 0..aWidth:
+   for z 0..zWidth:
+   for y 0..yWidth:
+   for x 0..xWidth:
    addr = ((((c * bWidth + b) * aWidth + a) * zWidth + z) * yWidth + y) * xWidth + x;
 }
 
 addressGen DataBroadCasted(cEnable,cLoop,bEnable,bLoop,cWidth,aEnable,aLoop,bWidth,zEnable,zLoop,aWidth,yEnable,yLoop,zWidth,xEnable,xLoop,yWidth){
-   for c 0..cLoop
-   for b 0..bLoop
-   for a 0..aLoop
-   for z 0..zLoop
-   for y 0..yLoop
-   for x 0..xLoop
+   for c 0..cLoop:
+   for b 0..bLoop:
+   for a 0..aLoop:
+   for z 0..zLoop:
+   for y 0..yLoop:
+   for x 0..xLoop:
    addr = ((((c * cEnable * cWidth + b * bEnable) * bWidth + a * aEnable) * aWidth + z * zEnable) * zWidth + y * yEnable) * yWidth + x * xEnable;
 }
 
 addressGen Broadcast1(size,enable){
-   for x 0..size
+   for x 0..size:
    addr = x * enable;
 }
 
 addressGen Linear(size){
-   for x 0..size
+   for x 0..size:
    addr = x;
 }
 
@@ -48,17 +48,17 @@ module Top_Relu(){
 
 // Output space
 addressGen Linear2(startX,startY,startOffset,sizeW,sizeH,outputImageW,stride){
-   for y 0..sizeH
-   for x 0..sizeW
+   for y 0..sizeH:
+   for x 0..sizeW:
    addr = ((y + startY) * outputImageW + (x + startX) + startOffset) / stride;
 }
 
 // Should be Input space but I think some values in here are output space
 addressGen MaxPool2D(startX,startY,startOffset,kernelW,kernelH,imageWidth,sizeW,sizeH,strideW,strideH){
-   for y  0..sizeH
-   for x  0..sizeW
-   for ky 0..kernelH
-   for kx 0..kernelW
+   for y  0..sizeH:
+   for x  0..sizeW:
+   for ky 0..kernelH:
+   for kx 0..kernelW:
    addr = startOffset + (y * strideH + startY + ky) * imageWidth + x * strideW + startX + kx;
 }
 
@@ -84,30 +84,30 @@ module Top_AveragePool(){
 }
 
 addressGen Conv2D_NHWC(startX,startY,sizeW,sizeH,inputImageW,inputImageC,sizeC,features,startC){
-   for d 0..features
-   for c 0..sizeC
-   for ky 0..sizeH
-   for kx 0..sizeW
+   for d 0..features:
+   for c 0..sizeC:
+   for ky 0..sizeH:
+   for kx 0..sizeW:
    addr = (startY + ky) * inputImageW * inputImageC + (startX + kx) * inputImageC + (c + startC);
 }
 
-addressGen Weight2D(startX,startY,sizeW,sizeH,kernelW,kernelH,inputChannels,sizeC,features,startC){
-   for d 0..features
-   for c 0..sizeC
-   for y 0..sizeH
-   for x 0..sizeW
-   addr = d * inputChannels * kernelW * kernelH + (c + startC) * kernelW * kernelH + (y + startY) * kernelW + (x + startX);
+addressGen Weight2D(startX,startY,sizeW,sizeH,kernelW,kernelH,inputChannels,sizeC,features,startC,startD){
+   for d 0..features:
+   for c 0..sizeC:
+   for y 0..sizeH:
+   for x 0..sizeW:
+   addr = (d + startD) * inputChannels * kernelW * kernelH + (c + startC) * kernelW * kernelH + (y + startY) * kernelW + (x + startX);
 }
 
-addressGen Linear2_NHWC(startX,startY,height,width,startC,outputChannels,outputWidth,stride){
-   for y 0..height
-   for x 0..width
-   for c 0..outputChannels
+addressGen Linear2_NHWC(startX,startY,height,width,startC,outputChannels,outputSize,outputWidth,stride){
+   for y 0..height:
+   for x 0..width:
+   for c 0..outputSize:
    addr = ((y + startY) * outputWidth * outputChannels + (x + startX) * outputChannels + startC + c) / stride;
 }
 
 addressGen LinearStrided(size,stride){
-   for x 0..size
+   for x 0..size:
    addr = x / stride;
 }
 
@@ -115,7 +115,6 @@ module Top_Conv(){
    using(Conv2D_NHWC) VRead features;
    using(Weight2D) VRead weights;
    using(LinearStrided) VRead bias;
-   //Const bias;
    F_Mul muller;
    F_Add addBias;
    MyFloatAccum myAccum;
@@ -123,8 +122,6 @@ module Top_Conv(){
 #   
    {weights,features} -> muller:0..1;
    muller -> myAccum;
-      
-   //myAccum -> output;
 
    {myAccum,bias} -> addBias:0..1;
    addBias -> output;

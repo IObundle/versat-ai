@@ -1,0 +1,12 @@
+// DESCRIPTION: Verilator output: Waivers generated with --waiver-output
+
+`verilator_config
+
+// Logic guarantees that subtraction never overlows
+lint_off -rule WIDTHTRUNC -file "**/SimpleAXIToAXIWrite.v" -match "Operator ASSIGN expects 8 bits on the Assign RHS, but Assign RHS's SUB generates 32 or 9 bits.*"
+
+// Unused AXI inputs, kept to implement full AXI
+lint_off -rule UNUSEDSIGNAL -file "**/SimpleAXIToAXIWrite.v" -match "Signal is not used: 'm_wstrb_i'*"
+lint_off -rule UNUSEDSIGNAL -file "**/SimpleAXIToAXIWrite.v" -match "Signal is not used: 'axi_bid_i'*"
+lint_off -rule UNUSEDSIGNAL -file "**/SimpleAXIToAXIWrite.v" -match "Signal is not used: 'axi_bresp_i'*"
+

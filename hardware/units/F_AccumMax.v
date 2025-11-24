@@ -2,6 +2,7 @@
 
 /* verilator lint_off WIDTH */
 
+// We expect this to be float
 module F_AccumMax #(
    parameter DATA_W = 32,
    parameter DELAY_W = 7
@@ -40,9 +41,28 @@ wire store = (delay == 0);
 
 reg [DATA_W-1:0] stored;
 
-wire [DATA_W-1:0] bigger  = (in0[DATA_W-1] ^ stored[DATA_W-1])? (in0[DATA_W-1]? stored: in0):
-                                 in0[DATA_W-1]? ((in0[DATA_W-2:0] > stored[DATA_W-2:0])? stored: in0):
-                                 ((in0[DATA_W-2:0] > stored[DATA_W-2:0])? in0: stored);
+wire inputNegative = in0[DATA_W-1];
+wire storedNegative = stored[DATA_W-1];
+
+//wire [DATA_W-1:0] bigger  =     (in0[DATA_W-1] ^ stored[DATA_W-1]) ? (in0[DATA_W-1] ? stored: in0):
+//                                 in0[DATA_W-1] ? ((in0[DATA_W-2:0] > stored[DATA_W-2:0])? stored: in0):
+//                                 ((in0[DATA_W-2:0] > stored[DATA_W-2:0])? in0: stored);
+
+reg [DATA_W-1:0] bigger;
+
+always @* begin
+   bigger = stored;
+
+   if(storedNegative && !inputNegative) begin
+      bigger = in0;
+   end
+
+   if(storedNegative == inputNegative) begin
+      if(in0[DATA_W-2:0] > stored[DATA_W-2:0]) begin
+         bigger = in0;
+      end
+   end
+end
 
 always @(posedge clk,posedge rst) begin
    if(rst) begin

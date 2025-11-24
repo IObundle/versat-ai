@@ -10,3 +10,5 @@ software/src/code.c
 software/src/modelInfo.h
 software/src/testInfo.h
 *.bin
+*_code.c
+*_modelInfo.h

@@ -24,13 +24,28 @@ class DataSourceType(Enum):
 
 
 @dataclass
+class CDataHandle:
+    index: int
+
+
+@dataclass
+class TypedArray:
+    dtype: str
+    data: list[any]
+    name: str = None
+
+
+@dataclass
 class DataSource:
     sourceType: DataSourceType
     name: str
 
     # Computed afterwards. Easier to store directly.
     index: int = -1
-    correctInputIndex: int = -1
+    # correctInputIndex: int = -1
+
+    def __repr__(self):
+        return self.sourceType.name + " " + str(self.index)
 
 
 class MemoryType(Enum):
@@ -80,6 +95,8 @@ class Operation:
     outputDimensions: list[int | str]
     parsedAttributes: dict[str, InstantiatedAttribute] = None
 
+    outputIndex: int = -1
+
     # Data computed from extracted model.
     outputMemoryAddress: MemoryLocation = (
         None  # Address at runtime. We precalculate it, we do not allocate memory at runtime.
@@ -97,14 +114,14 @@ class OnnxOperatorSpec:
     name: str
     emitFunction: Callable
     attributesDict: dict[str, OnnxAttribute] = field(default_factory=dict)
-    generateVersatCode: bool = False
+    supportedByVersat: bool = False
     broadcastType: BroadcastType = BroadcastType.NO_BROADCAST
 
 
 @dataclass
 class Port:
     name: str
-    shape: list[int]
+    shape: list[int | str]
     isOriginal: bool = (
         True  # In order to extract data from nodes, we add custom output ports. This variable is true only for the ports that are original, no modification made
     )
