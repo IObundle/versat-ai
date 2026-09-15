@@ -156,6 +156,7 @@ typedef struct {
 // code. We want to offer a very simple "allocate x amount of space before
 // starting our code" model of usage since this is intented to run on embedded
 // targets.
+
 Tensor PushTensor(Arena *out, int64_t *dims, int numberDims);
 Tensor CreateTensor_NoAllocate(int64_t *dims, int numberDims);
 Tensor Tensor_Transpose(Tensor in, int *index, Arena *out);
@@ -205,6 +206,8 @@ void *Software_Dropout(void *input, void *out, int index, DropoutInfo *info);
 void *Software_LRN(void *input, void *out, int index, LRNInfo *info);
 void *Software_Gemm(void *inA, void *inB, void *inC, void *out, int index,
                     GemmInfo *info);
+void *Software_Pad(void *inA, void *out, int index, PadInfo *info);
+void *Software_FixPad(void *inA, void *out, int index, FixPadInfo *info);
 
 // Accelerator implementations
 void *Versat_Add(void *inputA, void *inputB, void *output, int index,
@@ -243,6 +246,8 @@ void AssertAlmostEqual(void *toTest, void *correctValues, int index,
 float my_invsqrt(float number);
 
 void silent_clear_cache();
+
+void PrintTime(uint64_t start);
 
 // ======================================
 // Extra Info
@@ -286,6 +291,8 @@ typedef struct {
   int currentOutputX;
   int currentOutputY;
 
+  int advanceX;
+  int advanceY;
   int advanceC;
 
   bool iterateC;
@@ -332,10 +339,14 @@ typedef struct {
 
 WindowGen StartWindowGen(ExtraInfo *info, bool iterateC, bool isNCHW);
 WindowGen StartAdvancedWindowGen(ExtraInfo *info, bool iterateC, bool isNCHW,
+                                 int xMaxAdvance, int yMaxAdvance,
                                  int cMaxAdvance);
 
 AdvancedWindow WindowGen_Get(WindowGen *gen);
+void WindowGen_GetTruePadding(WindowGen *gen, AdvancedWindow *out);
 void WindowGen_Advance(WindowGen *gen);
+void WindowGen_AdvanceTruePadding(WindowGen *gen, AdvancedWindow w);
+
 bool WindowGen_Valid(WindowGen *gen);
 
 void AdvancedWindow_Print(AdvancedWindow window);

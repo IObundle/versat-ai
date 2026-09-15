@@ -2,6 +2,10 @@
 
 #include "versat_ai.h"
 
+// nocheckin: Remove this after solving bug
+#include <stdlib.h>
+#include <string.h>
+
 #define MAX(A, B) ((A) > (B) ? (A) : (B))
 #define MIN(A, B) ((A) < (B) ? (A) : (B))
 
@@ -14,10 +18,18 @@ Arena arenaInst;
 Arena *arena = &arenaInst;
 
 uint64_t Versat_DefaultMeasureTime() { return 0; }
+void Versat_DefaultTimeReset(){};
 void Versat_DefaultClearCache(void *ptr, size_t size) {}
 
 MeasureTimeFunction versat_time = Versat_DefaultMeasureTime;
+TimeResetFunction versat_timeReset = Versat_DefaultTimeReset;
 ClearCache versat_clearCache = Versat_DefaultClearCache;
+
+TimeResetFunction Versat_SetTimeReset(TimeResetFunction func) {
+  TimeResetFunction old = versat_timeReset;
+  versat_timeReset = func;
+  return old;
+}
 
 MeasureTimeFunction
 Versat_SetTimeMeasurementFunction(MeasureTimeFunction func) {
@@ -494,6 +506,7 @@ void AssertAlmostEqual(void *toTest, void *correctValues, int index,
 
   int incorrectFound = 0;
   for (int i = 0; i < outputSize; i++) {
+    // versat_printf("%f %f\n", correct[i],test[i]);
     if (absf(correct[i] - test[i]) > precision) {
       if (incorrectFound == 0) {
         versat_printf("\n");
@@ -729,9 +742,21 @@ ExtraInfo CalculateExtraInfo_Conv(ConvInfo *info) {
   res.inputImageH = inputDims[2];
   res.inputImageC = inputDims[1];
 
+  if (info->isNHWC) {
+    res.inputImageC = inputDims[3];
+    res.inputImageH = inputDims[1];
+    res.inputImageW = inputDims[2];
+  }
+
   res.outputImageC = outputDims[1];
   res.outputImageH = outputDims[2];
   res.outputImageW = outputDims[3];
+
+  if (info->isNHWC) {
+    res.outputImageC = outputDims[3];
+    res.outputImageH = outputDims[1];
+    res.outputImageW = outputDims[2];
+  }
 
   if (info->padding == PaddingType_NOTSET) {
     // TODO: Need a better way of handling errors in this layer, I think.
@@ -795,11 +820,14 @@ WindowGen StartWindowGen(ExtraInfo *info, bool iterateC, bool isNCHW) {
 }
 
 WindowGen StartAdvancedWindowGen(ExtraInfo *info, bool iterateC, bool isNCHW,
+                                 int xMaxAdvance, int yMaxAdvance,
                                  int cMaxAdvance) {
   WindowGen res = {};
   res.info = info;
   res.iterateC = iterateC;
   res.isNCHW = isNCHW;
+  res.advanceX = xMaxAdvance;
+  res.advanceY = yMaxAdvance;
   res.advanceC = cMaxAdvance;
   return res;
 }
@@ -837,10 +865,16 @@ void AdvancedWindow_Print(AdvancedWindow window) {
   versat_printf("Output pos: X:%d,Y:%d (C:%d)\n", window.outputX,
                 window.outputY, window.outputC);
   versat_printf("Input pos: (%d,%d)\n", window.inputX, window.inputY);
-  versat_printf("WindowSize (Out view): %d %d %d\n", window.outputSizeC,
-                window.outputH, window.outputW);
-  versat_printf("KernelSizeAndOffset: %d:%d - %d:%d\n", window.actualKernelW,
-                window.kernelStartW, window.actualKernelH, window.kernelStartH);
+
+  if (window.entireWindowInsidePadding) {
+    versat_printf("Window inside padding\n");
+  } else {
+    versat_printf("WindowSize (Out view): %d %d %d\n", window.outputSizeC,
+                  window.outputH, window.outputW);
+    versat_printf("KernelSizeAndOffset: %d:%d - %d:%d\n", window.actualKernelW,
+                  window.kernelStartW, window.actualKernelH,
+                  window.kernelStartH);
+  }
 }
 
 AdvancedWindow WindowGen_Get(WindowGen *gen) {
@@ -863,9 +897,6 @@ AdvancedWindow WindowGen_Get(WindowGen *gen) {
   // is stable. ( So that we iterate over all the pixels correctly).
   res.outputW = 1;
   res.outputH = 1;
-
-  // For now, just like the rest of the window, we only advance a single output
-  // channel
   res.outputSizeC = gen->advanceC;
 
   if (res.outputSizeC + res.outputC >= gen->info->outputImageC) {
@@ -931,9 +962,103 @@ AdvancedWindow WindowGen_Get(WindowGen *gen) {
   return res;
 }
 
+void WindowGen_GetTruePadding(WindowGen *gen, AdvancedWindow *out) {
+  out->outputX = gen->currentOutputX;
+  out->outputY = gen->currentOutputY;
+  out->outputC = gen->currentOutputC;
+
+  out->startC = gen->currentOutputC;
+  out->inputX = gen->currentOutputX * gen->info->strideW;
+  out->inputY = gen->currentOutputY * gen->info->strideH;
+
+  // Currently we assume a window size of 1, although need to add the better
+  // logic to suport more windows and improve performance.
+
+  // The only thing that we need to care about is the windows that are near
+  // padding regions the fact that the accelerator must contain enough memory to
+  // support a window and that we must make sure that the height of the window
+  // is stable. ( So that we iterate over all the pixels correctly).
+  out->outputW = gen->advanceX;
+  out->outputH = gen->advanceY;
+  out->outputSizeC = gen->advanceC;
+
+  // NOTE: There is some bug related to group which this piece of code hides.
+  if (out->outputSizeC + out->outputC >= gen->info->outputImageC) {
+    out->outputSizeC = gen->info->outputImageC - out->outputC;
+    if (out->outputSizeC <= 0) {
+      versat_printf("ERROR, CANNOT HAVE OUTPUT SIZE LOWER OR EQUAL TO 0: %d",
+                    out->outputSizeC);
+    }
+  }
+
+  // Puts window back into boundaries if it gets outside
+  if (out->outputW + out->outputX >= gen->info->outputImageW) {
+    out->outputW = gen->info->outputImageW - out->outputX;
+  }
+  if (out->outputH + out->outputY >= gen->info->outputImageH) {
+    out->outputH = gen->info->outputImageH - out->outputY;
+  }
+
+  // By default, input equals kernel size
+  out->actualKernelW = gen->info->kernelW;
+  out->actualKernelH = gen->info->kernelH;
+}
+
 void WindowGen_Advance(WindowGen *gen) {
   AdvancedWindow window = WindowGen_Get(gen);
 
+  if (gen->iterateC) {
+    if (gen->isNCHW) {
+      gen->currentOutputX += window.outputW;
+      if (gen->currentOutputX >= gen->info->outputImageW) {
+        gen->currentOutputX = 0;
+        gen->currentOutputY += window.outputH;
+      }
+
+      if (gen->currentOutputY >= gen->info->outputImageH) {
+        gen->currentOutputY = 0;
+        gen->currentOutputC += window.outputSizeC;
+      }
+
+      if (gen->currentOutputC >= gen->info->outputImageC) {
+        gen->currentOutputC = -1;
+        gen->currentOutputX = -1;
+        gen->currentOutputY = -1;
+      }
+    } else {
+      // NHWC
+      gen->currentOutputC += window.outputSizeC;
+      if (gen->currentOutputC >= gen->info->outputImageC) {
+        gen->currentOutputC = 0;
+        gen->currentOutputX += window.outputW;
+      }
+
+      if (gen->currentOutputX >= gen->info->outputImageW) {
+        gen->currentOutputX = 0;
+        gen->currentOutputY += window.outputH;
+      }
+
+      if (gen->currentOutputY >= gen->info->outputImageH) {
+        gen->currentOutputC = -1;
+        gen->currentOutputX = -1;
+        gen->currentOutputY = -1;
+      }
+    }
+  } else {
+    gen->currentOutputX += window.outputW;
+    if (gen->currentOutputX >= gen->info->outputImageW) {
+      gen->currentOutputX = 0;
+      gen->currentOutputY += window.outputH;
+    }
+
+    if (gen->currentOutputY >= gen->info->outputImageH) {
+      gen->currentOutputX = -1;
+      gen->currentOutputY = -1;
+    }
+  }
+}
+
+void WindowGen_AdvanceTruePadding(WindowGen *gen, AdvancedWindow window) {
   if (gen->iterateC) {
     if (gen->isNCHW) {
       gen->currentOutputX += window.outputW;
@@ -1035,7 +1160,7 @@ typedef struct {
   void *tempMem;
   void **inputs;
   void *modelMem;
-  void *correctInput;
+  void *correctData;
 } InferenceState;
 
 void *GetSourcePointer(InferenceState *state, DataSource source) {
@@ -1053,7 +1178,7 @@ void *GetSourcePointer(InferenceState *state, DataSource source) {
     return VERSAT_OFFSET_PTR(state->modelMem, source.memOffset);
   } break;
   case SourceType_CORRECT_MEM: {
-    return VERSAT_OFFSET_PTR(state->correctInput, source.memOffset);
+    return VERSAT_OFFSET_PTR(state->correctData, source.memOffset);
   } break;
   }
 }
@@ -1076,15 +1201,16 @@ void DataSource_Print(DataSource source) {
     versat_printf("Correct_Mem: %d", source.memOffset);
   } break;
   default: {
-    versat_printf("Unknown data source type: %d\n", source.type);
+    versat_printf("Unknown data source type: %d", source.type);
   } break;
   }
+  versat_printf("\n");
 }
 
 void Operation_Print(Operation *op) {
   versat_printf("Operation size: %d\n", op->operatorSize);
   versat_printf("Operation type: %d\n", op->type);
-  versat_printf("Uses versat: %s\n", op->useVersat ? "True" : "False");
+  versat_printf("Uses software: %s\n", op->useSoftware ? "True" : "False");
   versat_printf("Output:\n");
   versat_printf("  ");
   DataSource_Print(op->output);
@@ -1109,27 +1235,131 @@ void *Operation_GetOperationInfo(Operation *op) {
   return res;
 }
 
+static void PrintU64(uint64_t n) {
+  char buffer[32];
+  char buffer2[32];
+
+  for (int i = 0; i < 32; i++) {
+    buffer[i] = 0;
+    buffer2[i] = 0;
+  }
+
+  uint64_t v = n;
+  int i = 0;
+  if (v == 0) {
+    buffer[i] = '0';
+    i += 1;
+  }
+  while (v) {
+    buffer[i] = (v % 10) + '0';
+    v = v / 10;
+    i += 1;
+  }
+
+  int index = 0;
+  for (int j = i - 1; j >= 0; j--) {
+    buffer2[index++] = buffer[j];
+  }
+
+  versat_printf("%s", buffer2);
+}
+
+static void PrintU64InHex(uint64_t n) {
+  union {
+    uint64_t u64;
+    uint32_t u32[2];
+  } conv;
+
+  conv.u64 = n;
+
+  versat_printf("%08x%08x\n", conv.u32[1], conv.u32[0]);
+}
+
+#include "versat_accel.h"
+
+static ProfileSample *storedProfiles = 0;
+static int maxProfiledSamples = 0;
+static int profileIndex = 0;
+
+void entry(const float tensor_input_1[1][32][32][3],
+           float tensor_Identity[1][10]);
+
+void PrintCurrentTime() {
+  uint64_t now = versat_time();
+  PrintU64(now);
+  versat_printf("\n");
+}
+
+void PrintTimeDiff(uint64_t start) {
+  uint64_t end = versat_time();
+  uint64_t diff = end - start;
+
+  versat_printf("Start,End,Diff\n");
+  PrintU64(start);
+  versat_printf("\n");
+  PrintU64(end);
+  versat_printf("\n");
+  PrintU64(diff);
+  versat_printf("\n\n");
+}
+
 InferenceOutput RunCompiledInference(CompiledModel *model, void *outputMemory,
                                      void *temporaryMemory, void **inputs,
                                      void *modelMemory, void *correctInput) {
   Operation *ptr = CompiledModel_Operations(model);
 
-  versat_printf("Input values: %p %p\n", inputs[0], inputs[1]);
+  uint64_t start = 0;
+
+#if 0
+  versat_printf("Onnx2c\n");
+
+  versat_timeReset();
+  start = versat_time();
+
+  float **asFloat = (float **)inputs;
+  entry(asFloat[0], (float *)outputMemory);
+
+  PrintTimeDiff(start);
+#endif
 
   InferenceState stateInst = {.outputMem = outputMemory,
                               .tempMem = temporaryMemory,
                               .inputs = inputs,
                               .modelMem = modelMemory,
-                              .correctInput = correctInput};
+                              .correctData = correctInput};
+
+  char *correctInputAsChar = (char *)correctInput;
+  char *savedCorrectMem = (char *)malloc(model->correctSize);
+  memcpy(savedCorrectMem, correctInputAsChar, model->correctSize);
+
+  char *correctModelMemory = (char *)modelMemory;
+  char *savedModelMemory = (char *)malloc(model->modelSize);
+  memcpy(savedModelMemory, correctModelMemory, model->modelSize);
+
+#define PRINT_HELP 0
 
   InferenceState *state = &stateInst;
 
-  for (uint32_t i = 0; i < model->nOperations; i++) {
-    bool useVersat = ptr->useVersat;
+  Top_Conv_NumberUnits_Struct res = Top_Conv_NumberUnits();
+  versat_printf("Add       parameters: %d\n", Top_Add_NumberUnits().val);
+  versat_printf("Conv grid parameters: %d %d\n", res.gridX, res.gridY);
+
+  versat_printf("VersatSoft\n");
+  versat_timeReset();
+  start = versat_time();
+  for (uint32_t i = 0; i < model->nOperations;
+       i++, ptr = VERSAT_OFFSET_PTR(ptr, ptr->operatorSize)) {
+    bool useSoftware = ptr->useSoftware;
 
     void *info = Operation_GetOperationInfo(ptr);
     void *out = NULL;
     void *correctOutput = GetSourcePointer(state, ptr->correctOutput);
+
+#if PRINT_HELP
+    versat_printf("CorrectData\n");
+    DataSource_Print(ptr->correctOutput);
+    versat_printf("%p\n", correctOutput);
+#endif
 
     void *input0 = NULL;
     void *input1 = NULL;
@@ -1138,9 +1368,19 @@ InferenceOutput RunCompiledInference(CompiledModel *model, void *outputMemory,
     void *input4 = NULL;
     if (ptr->nInputs > 0) {
       input0 = GetSourcePointer(state, ptr->inputs[0]);
+#if PRINT_HELP
+      versat_printf("Input0\n");
+      DataSource_Print(ptr->inputs[0]);
+      versat_printf("%p\n", input0);
+#endif
     }
     if (ptr->nInputs > 1) {
       input1 = GetSourcePointer(state, ptr->inputs[1]);
+#if PRINT_HELP
+      versat_printf("Input1\n");
+      DataSource_Print(ptr->inputs[1]);
+      versat_printf("%p\n", input1);
+#endif
     }
     if (ptr->nInputs > 2) {
       input2 = GetSourcePointer(state, ptr->inputs[2]);
@@ -1153,99 +1393,123 @@ InferenceOutput RunCompiledInference(CompiledModel *model, void *outputMemory,
     }
 
     void *output = GetSourcePointer(state, ptr->output);
+#if PRINT_HELP
+    versat_printf("OutputPos\n");
+    DataSource_Print(ptr->output);
+    versat_printf("%p\n", output);
+    versat_printf("%d\n", ptr->outputSize);
+#endif
+
+#if 1
+    // For testing purposes we initialize with a very likely bad value
+    // To make sure that the operator is not skipping any computation
+    float *asFloat = (float *)output;
+    for (int i = 0; i < (ptr->outputSize / sizeof(float)); i++) {
+      asFloat[i] = 123.321f;
+    }
+#endif
 
     versat_clearCache(NULL, 0);
+
+    VersatProfileReset();
 
     // TODO: Could be generated by python stuff
     switch (ptr->type) {
     case OperatorType_Add: {
-      if (useVersat) {
-        out = Versat_Add(input0, input1, output, i, info);
-      } else {
+      if (useSoftware) {
         out = Software_Add(input0, input1, output, i, info);
+      } else {
+        out = Versat_Add(input0, input1, output, i, info);
       }
     } break;
     case OperatorType_Relu: {
-      if (useVersat) {
-        out = Versat_Relu(input0, output, i, info);
-      } else {
+      if (useSoftware) {
         out = Software_Relu(input0, output, i, info);
+      } else {
+        // out = Software_Relu(input0, output, i, info);
+        out = Versat_Relu(input0, output, i, info);
       }
     } break;
     case OperatorType_MaxPool: {
-      if (useVersat) {
-        out = Versat_MaxPool(input0, output, i, info);
-      } else {
+      if (useSoftware) {
         out = Software_MaxPool(input0, output, i, info);
+      } else {
+        out = Versat_MaxPool(input0, output, i, info);
       }
     } break;
     case OperatorType_AveragePool: {
-      if (useVersat) {
-        out = Versat_AveragePool(input0, output, i, info);
-      } else {
+      if (useSoftware) {
         out = Software_AveragePool(input0, output, i, info);
+      } else {
+        out = Versat_AveragePool(input0, output, i, info);
       }
     } break;
     case OperatorType_Conv: {
-      if (useVersat) {
-        out = Versat_ConvWithBias(input0, input1, input2, output, i, info);
-      } else {
+      if (useSoftware) {
         out = Software_ConvWithBias(input0, input1, input2, output, i, info);
+      } else {
+        out = Versat_ConvWithBias(input0, input1, input2, output, i, info);
       }
     } break;
     case OperatorType_Reshape: {
-      if (useVersat) {
-        out = Versat_Reshape(input0, input1, output, i, info);
-      } else {
+      if (useSoftware) {
         out = Software_Reshape(input0, input1, output, i, info);
+      } else {
+        out = Versat_Reshape(input0, input1, output, i, info);
       }
     } break;
     case OperatorType_MatMul: {
-      if (useVersat) {
-        out = Versat_MatMul(input0, input1, output, i, info);
-      } else {
+      if (useSoftware) {
         out = Software_MatMul(input0, input1, output, i, info);
+      } else {
+        out = Versat_MatMul(input0, input1, output, i, info);
       }
     } break;
     case OperatorType_Softmax: {
-      if (useVersat) {
-        out = Versat_Softmax(input0, output, i, info);
-      } else {
+      if (useSoftware) {
         out = Software_Softmax(input0, output, i, info);
+      } else {
+        out = Versat_Softmax(input0, output, i, info);
       }
     } break;
     case OperatorType_Transpose: {
       out = Software_Transpose(input0, output, i, info);
     } break;
     case OperatorType_BatchNormalization: {
-      if (useVersat) {
-        out = Versat_BatchNormalization(input0, input1, input2, input3, input4,
-                                        output, i, info);
-      } else {
+      if (useSoftware) {
         out = Software_BatchNormalization(input0, input1, input2, input3,
                                           input4, output, i, info);
+      } else {
+        out = Versat_BatchNormalization(input0, input1, input2, input3, input4,
+                                        output, i, info);
       }
     } break;
     case OperatorType_Dropout: {
-      if (useVersat) {
-        out = Versat_Dropout(input0, output, i, info);
-      } else {
+      if (useSoftware) {
         out = Software_Dropout(input0, output, i, info);
+      } else {
+        out = Versat_Dropout(input0, output, i, info);
       }
     } break;
     case OperatorType_LRN: {
-      if (useVersat) {
-        out = Versat_LRN(input0, output, i, info);
-      } else {
+      if (useSoftware) {
         out = Software_LRN(input0, output, i, info);
+      } else {
+        out = Versat_LRN(input0, output, i, info);
       }
     } break;
     case OperatorType_Gemm: {
-      if (useVersat) {
-        out = Versat_Gemm(input0, input1, input2, output, i, info);
+      if (useSoftware) {
+        // out = Software_Gemm(input0, input1, input2, output, i, info);
       } else {
-        out = Software_Gemm(input0, input1, input2, output, i, info);
+        out = Versat_Gemm(input0, input1, input2, output, i, info);
       }
+    } break;
+    case OperatorType_Pad: {
+      out = Software_Pad(input0, output, i, info);
+    } break;
+    case OperatorType_FixPad: {
+      out = Software_FixPad(input0, output, i, info);
     } break;
 
     default: {
@@ -1253,15 +1517,90 @@ InferenceOutput RunCompiledInference(CompiledModel *model, void *outputMemory,
     } break;
     }
 
-    // versat_printf("Finished operation\n");
+#if 0
+    for (int i = 0; i < model->correctSize; i++) {
+      if (savedCorrectMem[i] != correctInputAsChar[i]) {
+        versat_printf("Correct input change!!!!!\n");
+      }
+    }
 
-    LayerInfo layer = {};
-    layer.outputSize = ptr->outputSize;
-    layer.typeName = VERSAT_OperatorName(ptr->type, useVersat);
-    AssertAlmostEqual(out, correctOutput, i, ptr->precision, &layer);
+    for (int i = 0; i < model->modelSize; i++) {
+      if (savedModelMemory[i] != correctModelMemory[i]) {
+        versat_printf("Model memory change!!!!!\n");
+      }
+    }
+#endif
 
-    ptr = VERSAT_OFFSET_PTR(ptr, ptr->operatorSize);
+#if 0
+    // Run profile
+    // ================================================================
+    versat_printf("L:%d\n", i);
+    VersatProfile p = VersatProfileGet();
+
+    versat_printf("Cycles since last reset:");
+    PrintU64(p.cyclesSinceLastReset);
+    versat_printf("\n");
+
+    // Versat profiling registers
+    // ================================================
+    if (1) {
+      versat_printf("Runs:");
+      PrintU64(p.runCount);
+      versat_printf("\n");
+
+      versat_printf("Cycles running:");
+      PrintU64(p.runningCycles);
+      versat_printf("\n");
+
+      versat_printf("Databus valid:");
+      PrintU64(p.databusValid);
+      versat_printf("\n");
+
+      versat_printf("Databus valid and ready:");
+      PrintU64(p.databusValidAndReady);
+      versat_printf("\n");
+
+      versat_printf("ConfigurationsSet:");
+      PrintU64(p.configurationsSet);
+      versat_printf("\n");
+
+      versat_printf("ConfigurationsSet while running:");
+      PrintU64(p.configurationsSetWhileRunning);
+      versat_printf("\n");
+
+      ProfileResult res = Profile_Get();
+
+      versat_printf("Profile samples: %d\n", res.amount);
+
+      for (int i = 0; i < res.amount; i++) {
+        ProfileSample sample = res.samples[i];
+
+        versat_printf("%30s: ", sample.name);
+        PrintU64(sample.time);
+        versat_printf("\n");
+      }
+
+      Profile_Reset();
+    }
+#endif
+
+#if 1
+    // Check result of layer
+    // ======================================================
+    if (ptr->outputSize > 0) {
+      LayerInfo layer = {};
+      layer.outputSize = ptr->outputSize;
+      layer.typeName = VERSAT_OperatorName(ptr->type, useSoftware);
+      AssertAlmostEqual(out, correctOutput, i, ptr->precision, &layer);
+    } else {
+      const char *typeName = VERSAT_OperatorName(ptr->type, useSoftware);
+      versat_printf("[%s] (Layer %d) NOT CHECKED (No validity data)\n",
+                    typeName, i);
+    }
+#endif
   }
+
+  PrintTimeDiff(start);
 }
 
 // ===============
@@ -1644,7 +1983,11 @@ void Versat_Init() {
   arena->mem = (char *)malloc(arena->allocated);
 #endif
 
-  versat_printf("Arena %p - %p\n", arena->mem, arena->mem + arena->allocated);
+  storedProfiles = malloc(sizeof(ProfileSample) * 1000);
+  maxProfiledSamples = 1000;
+
+  // versat_printf("Arena %p - %p\n", arena->mem, arena->mem +
+  // arena->allocated);
 
 #if !EMBED_TABLES
   {
@@ -1705,6 +2048,26 @@ void Versat_Init() {
   }
 #endif
 }
+
+// Profiling
+void _ProfileScope(int index, const char *name) {
+  if (profileIndex >= maxProfiledSamples) {
+    return;
+  }
+
+  storedProfiles[profileIndex].name = name;
+  storedProfiles[profileIndex].time = versat_time();
+  profileIndex += 1;
+}
+
+ProfileResult Profile_Get() {
+  ProfileResult res = {};
+  res.samples = storedProfiles;
+  res.amount = profileIndex;
+  return res;
+}
+
+void Profile_Reset() { profileIndex = 0; }
 
 #if EMBED_TABLES
 #define VERSAT_DO_EMBED_TABLES

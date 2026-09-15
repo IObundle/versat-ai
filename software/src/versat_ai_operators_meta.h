@@ -16,103 +16,127 @@ typedef enum {
   OperatorType_BatchNormalization = 9,
   OperatorType_Dropout = 10,
   OperatorType_LRN = 11,
-  OperatorType_Gemm = 12
+  OperatorType_Gemm = 12,
+  OperatorType_Pad = 13,
+  OperatorType_FixPad = 254,
+  OperatorType_NIL = 255
 } OperatorType;
 
-static inline char *VERSAT_OperatorName(int opType, int useVersat) {
-  switch (opType) {
-  case 0: {
-    if (useVersat) {
-      return "Versat_Add";
-    } else {
-      return "Soft_Add";
-    }
-  } break;
-  case 1: {
-    if (useVersat) {
-      return "Versat_Relu";
-    } else {
-      return "Soft_Relu";
-    }
-  } break;
-  case 2: {
-    if (useVersat) {
-      return "Versat_MaxPool";
-    } else {
-      return "Soft_MaxPool";
-    }
-  } break;
-  case 3: {
-    if (useVersat) {
-      return "Versat_AveragePool";
-    } else {
-      return "Soft_AveragePool";
-    }
-  } break;
-  case 4: {
-    if (useVersat) {
-      return "Versat_Conv";
-    } else {
-      return "Soft_Conv";
-    }
-  } break;
-  case 5: {
-    if (useVersat) {
-      return "Versat_Reshape";
-    } else {
-      return "Soft_Reshape";
-    }
-  } break;
-  case 6: {
-    if (useVersat) {
-      return "Versat_MatMul";
-    } else {
-      return "Soft_MatMul";
-    }
-  } break;
-  case 7: {
-    if (useVersat) {
-      return "Versat_Softmax";
-    } else {
-      return "Soft_Softmax";
-    }
-  } break;
-  case 8: {
-    if (useVersat) {
-      return "Versat_Transpose";
-    } else {
-      return "Soft_Transpose";
-    }
-  } break;
-  case 9: {
-    if (useVersat) {
-      return "Versat_BatchNormalization";
-    } else {
-      return "Soft_BatchNormalization";
-    }
-  } break;
-  case 10: {
-    if (useVersat) {
-      return "Versat_Dropout";
-    } else {
-      return "Soft_Dropout";
-    }
-  } break;
-  case 11: {
-    if (useVersat) {
-      return "Versat_LRN";
-    } else {
-      return "Soft_LRN";
-    }
-  } break;
-  case 12: {
-    if (useVersat) {
-      return "Versat_Gemm";
-    } else {
-      return "Soft_Gemm";
-    }
-  } break;
-    return "";
+static inline char* VERSAT_OperatorName(int opType,int useSoftware){
+  switch(opType){
+    case 0: {
+      if(useSoftware){
+        return "Soft_Add";
+      } else {
+        return "Versat_Add";
+      }
+    } break;
+    case 1: {
+      if(useSoftware){
+        return "Soft_Relu";
+      } else {
+        return "Versat_Relu";
+      }
+    } break;
+    case 2: {
+      if(useSoftware){
+        return "Soft_MaxPool";
+      } else {
+        return "Versat_MaxPool";
+      }
+    } break;
+    case 3: {
+      if(useSoftware){
+        return "Soft_AveragePool";
+      } else {
+        return "Versat_AveragePool";
+      }
+    } break;
+    case 4: {
+      if(useSoftware){
+        return "Soft_Conv";
+      } else {
+        return "Versat_Conv";
+      }
+    } break;
+    case 5: {
+      if(useSoftware){
+        return "Soft_Reshape";
+      } else {
+        return "Versat_Reshape";
+      }
+    } break;
+    case 6: {
+      if(useSoftware){
+        return "Soft_MatMul";
+      } else {
+        return "Versat_MatMul";
+      }
+    } break;
+    case 7: {
+      if(useSoftware){
+        return "Soft_Softmax";
+      } else {
+        return "Versat_Softmax";
+      }
+    } break;
+    case 8: {
+      if(useSoftware){
+        return "Soft_Transpose";
+      } else {
+        return "Versat_Transpose";
+      }
+    } break;
+    case 9: {
+      if(useSoftware){
+        return "Soft_BatchNormalization";
+      } else {
+        return "Versat_BatchNormalization";
+      }
+    } break;
+    case 10: {
+      if(useSoftware){
+        return "Soft_Dropout";
+      } else {
+        return "Versat_Dropout";
+      }
+    } break;
+    case 11: {
+      if(useSoftware){
+        return "Soft_LRN";
+      } else {
+        return "Versat_LRN";
+      }
+    } break;
+    case 12: {
+      if(useSoftware){
+        return "Soft_Gemm";
+      } else {
+        return "Versat_Gemm";
+      }
+    } break;
+    case 13: {
+      if(useSoftware){
+        return "Soft_Pad";
+      } else {
+        return "Versat_Pad";
+      }
+    } break;
+    case 254: {
+      if(useSoftware){
+        return "Soft_FixPad";
+      } else {
+        return "Versat_FixPad";
+      }
+    } break;
+    case 255: {
+      if(useSoftware){
+        return "Soft_NIL";
+      } else {
+        return "Versat_NIL";
+      }
+    } break;
+  return "";
   }
 }
 
@@ -131,14 +155,9 @@ typedef struct {
   // int64_t broadCastedShape[maxDims];
 } AddInfo;
 
-#define VERSAT_AddInfo_firstInputDims(INFO)                                    \
-  ((int64_t *)VERSAT_OFFSET_PTR(INFO, sizeof(AddInfo)))
-#define VERSAT_AddInfo_secondInputDims(INFO)                                   \
-  ((int64_t *)VERSAT_OFFSET_PTR(VERSAT_AddInfo_firstInputDims(INFO),           \
-                                INFO->maxDims * sizeof(int64_t)))
-#define VERSAT_AddInfo_broadCastedShape(INFO)                                  \
-  ((int64_t *)VERSAT_OFFSET_PTR(VERSAT_AddInfo_secondInputDims(INFO),          \
-                                INFO->maxDims * sizeof(int64_t)))
+#define VERSAT_AddInfo_firstInputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(INFO,sizeof(AddInfo)))
+#define VERSAT_AddInfo_secondInputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(VERSAT_AddInfo_firstInputDims(INFO),INFO->maxDims * sizeof(int64_t)))
+#define VERSAT_AddInfo_broadCastedShape(INFO) ((int64_t *) VERSAT_OFFSET_PTR(VERSAT_AddInfo_secondInputDims(INFO),INFO->maxDims * sizeof(int64_t)))
 
 typedef struct {
   int dims;
@@ -146,8 +165,7 @@ typedef struct {
   // int64_t inputDims[dims];
 } ReluInfo;
 
-#define VERSAT_ReluInfo_inputDims(INFO)                                        \
-  ((int64_t *)VERSAT_OFFSET_PTR(INFO, sizeof(ReluInfo)))
+#define VERSAT_ReluInfo_inputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(INFO,sizeof(ReluInfo)))
 
 typedef struct {
   int dims;
@@ -163,20 +181,11 @@ typedef struct {
   // int64_t outputDims[dims];
 } MaxPoolInfo;
 
-#define VERSAT_MaxPoolInfo_kernelDims(INFO)                                    \
-  ((int *)VERSAT_OFFSET_PTR(INFO, sizeof(MaxPoolInfo)))
-#define VERSAT_MaxPoolInfo_strideDims(INFO)                                    \
-  ((int *)VERSAT_OFFSET_PTR(VERSAT_MaxPoolInfo_kernelDims(INFO),               \
-                            INFO->kernelSize * sizeof(int)))
-#define VERSAT_MaxPoolInfo_padsDims(INFO)                                      \
-  ((int *)VERSAT_OFFSET_PTR(VERSAT_MaxPoolInfo_strideDims(INFO),               \
-                            INFO->strideSize * sizeof(int)))
-#define VERSAT_MaxPoolInfo_inputDims(INFO)                                     \
-  ((int64_t *)VERSAT_OFFSET_PTR(VERSAT_MaxPoolInfo_padsDims(INFO),             \
-                                INFO->padsSize * sizeof(int)))
-#define VERSAT_MaxPoolInfo_outputDims(INFO)                                    \
-  ((int64_t *)VERSAT_OFFSET_PTR(VERSAT_MaxPoolInfo_inputDims(INFO),            \
-                                INFO->dims * sizeof(int64_t)))
+#define VERSAT_MaxPoolInfo_kernelDims(INFO) ((int *) VERSAT_OFFSET_PTR(INFO,sizeof(MaxPoolInfo)))
+#define VERSAT_MaxPoolInfo_strideDims(INFO) ((int *) VERSAT_OFFSET_PTR(VERSAT_MaxPoolInfo_kernelDims(INFO),INFO->kernelSize * sizeof(int)))
+#define VERSAT_MaxPoolInfo_padsDims(INFO) ((int *) VERSAT_OFFSET_PTR(VERSAT_MaxPoolInfo_strideDims(INFO),INFO->strideSize * sizeof(int)))
+#define VERSAT_MaxPoolInfo_inputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(VERSAT_MaxPoolInfo_padsDims(INFO),INFO->padsSize * sizeof(int)))
+#define VERSAT_MaxPoolInfo_outputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(VERSAT_MaxPoolInfo_inputDims(INFO),INFO->dims * sizeof(int64_t)))
 
 typedef struct {
   int dims;
@@ -192,20 +201,11 @@ typedef struct {
   // int64_t outputDims[dims];
 } AveragePoolInfo;
 
-#define VERSAT_AveragePoolInfo_kernelDims(INFO)                                \
-  ((int *)VERSAT_OFFSET_PTR(INFO, sizeof(AveragePoolInfo)))
-#define VERSAT_AveragePoolInfo_strideDims(INFO)                                \
-  ((int *)VERSAT_OFFSET_PTR(VERSAT_AveragePoolInfo_kernelDims(INFO),           \
-                            INFO->kernelSize * sizeof(int)))
-#define VERSAT_AveragePoolInfo_padsDims(INFO)                                  \
-  ((int *)VERSAT_OFFSET_PTR(VERSAT_AveragePoolInfo_strideDims(INFO),           \
-                            INFO->strideSize * sizeof(int)))
-#define VERSAT_AveragePoolInfo_inputDims(INFO)                                 \
-  ((int64_t *)VERSAT_OFFSET_PTR(VERSAT_AveragePoolInfo_padsDims(INFO),         \
-                                INFO->padsSize * sizeof(int)))
-#define VERSAT_AveragePoolInfo_outputDims(INFO)                                \
-  ((int64_t *)VERSAT_OFFSET_PTR(VERSAT_AveragePoolInfo_inputDims(INFO),        \
-                                INFO->dims * sizeof(int64_t)))
+#define VERSAT_AveragePoolInfo_kernelDims(INFO) ((int *) VERSAT_OFFSET_PTR(INFO,sizeof(AveragePoolInfo)))
+#define VERSAT_AveragePoolInfo_strideDims(INFO) ((int *) VERSAT_OFFSET_PTR(VERSAT_AveragePoolInfo_kernelDims(INFO),INFO->kernelSize * sizeof(int)))
+#define VERSAT_AveragePoolInfo_padsDims(INFO) ((int *) VERSAT_OFFSET_PTR(VERSAT_AveragePoolInfo_strideDims(INFO),INFO->strideSize * sizeof(int)))
+#define VERSAT_AveragePoolInfo_inputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(VERSAT_AveragePoolInfo_padsDims(INFO),INFO->padsSize * sizeof(int)))
+#define VERSAT_AveragePoolInfo_outputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(VERSAT_AveragePoolInfo_inputDims(INFO),INFO->dims * sizeof(int64_t)))
 
 typedef struct {
   int dims;
@@ -215,6 +215,7 @@ typedef struct {
   int strideSize;
   int dilationsSize;
   int padsSize;
+  int isNHWC;
   PaddingType padding;
   // Followed by
   // int kernelDims[kernelSize];
@@ -225,23 +226,12 @@ typedef struct {
   // int64_t outputDims[dims];
 } ConvInfo;
 
-#define VERSAT_ConvInfo_kernelDims(INFO)                                       \
-  ((int *)VERSAT_OFFSET_PTR(INFO, sizeof(ConvInfo)))
-#define VERSAT_ConvInfo_strideDims(INFO)                                       \
-  ((int *)VERSAT_OFFSET_PTR(VERSAT_ConvInfo_kernelDims(INFO),                  \
-                            INFO->kernelSize * sizeof(int)))
-#define VERSAT_ConvInfo_dilationsDims(INFO)                                    \
-  ((int *)VERSAT_OFFSET_PTR(VERSAT_ConvInfo_strideDims(INFO),                  \
-                            INFO->strideSize * sizeof(int)))
-#define VERSAT_ConvInfo_padsDims(INFO)                                         \
-  ((int *)VERSAT_OFFSET_PTR(VERSAT_ConvInfo_dilationsDims(INFO),               \
-                            INFO->dilationsSize * sizeof(int)))
-#define VERSAT_ConvInfo_inputDims(INFO)                                        \
-  ((int64_t *)VERSAT_OFFSET_PTR(VERSAT_ConvInfo_padsDims(INFO),                \
-                                INFO->padsSize * sizeof(int)))
-#define VERSAT_ConvInfo_outputDims(INFO)                                       \
-  ((int64_t *)VERSAT_OFFSET_PTR(VERSAT_ConvInfo_inputDims(INFO),               \
-                                INFO->dims * sizeof(int64_t)))
+#define VERSAT_ConvInfo_kernelDims(INFO) ((int *) VERSAT_OFFSET_PTR(INFO,sizeof(ConvInfo)))
+#define VERSAT_ConvInfo_strideDims(INFO) ((int *) VERSAT_OFFSET_PTR(VERSAT_ConvInfo_kernelDims(INFO),INFO->kernelSize * sizeof(int)))
+#define VERSAT_ConvInfo_dilationsDims(INFO) ((int *) VERSAT_OFFSET_PTR(VERSAT_ConvInfo_strideDims(INFO),INFO->strideSize * sizeof(int)))
+#define VERSAT_ConvInfo_padsDims(INFO) ((int *) VERSAT_OFFSET_PTR(VERSAT_ConvInfo_dilationsDims(INFO),INFO->dilationsSize * sizeof(int)))
+#define VERSAT_ConvInfo_inputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(VERSAT_ConvInfo_padsDims(INFO),INFO->padsSize * sizeof(int)))
+#define VERSAT_ConvInfo_outputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(VERSAT_ConvInfo_inputDims(INFO),INFO->dims * sizeof(int64_t)))
 
 typedef struct {
   int numberInputDims;
@@ -250,10 +240,10 @@ typedef struct {
   // int64_t inputDims[numberInputDims];
 } ReshapeInfo;
 
-#define VERSAT_ReshapeInfo_inputDims(INFO)                                     \
-  ((int64_t *)VERSAT_OFFSET_PTR(INFO, sizeof(ReshapeInfo)))
+#define VERSAT_ReshapeInfo_inputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(INFO,sizeof(ReshapeInfo)))
 
 typedef struct {
+  int isBTransposed;
   int numberInputADims;
   int numberInputBDims;
   int numberOutputDims;
@@ -263,14 +253,9 @@ typedef struct {
   // int64_t outputDims[numberOutputDims];
 } MatMulInfo;
 
-#define VERSAT_MatMulInfo_inputADims(INFO)                                     \
-  ((int64_t *)VERSAT_OFFSET_PTR(INFO, sizeof(MatMulInfo)))
-#define VERSAT_MatMulInfo_inputBDims(INFO)                                     \
-  ((int64_t *)VERSAT_OFFSET_PTR(VERSAT_MatMulInfo_inputADims(INFO),            \
-                                INFO->numberInputADims * sizeof(int64_t)))
-#define VERSAT_MatMulInfo_outputDims(INFO)                                     \
-  ((int64_t *)VERSAT_OFFSET_PTR(VERSAT_MatMulInfo_inputBDims(INFO),            \
-                                INFO->numberInputBDims * sizeof(int64_t)))
+#define VERSAT_MatMulInfo_inputADims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(INFO,sizeof(MatMulInfo)))
+#define VERSAT_MatMulInfo_inputBDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(VERSAT_MatMulInfo_inputADims(INFO),INFO->numberInputADims * sizeof(int64_t)))
+#define VERSAT_MatMulInfo_outputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(VERSAT_MatMulInfo_inputBDims(INFO),INFO->numberInputBDims * sizeof(int64_t)))
 
 typedef struct {
   int numberInputDims;
@@ -279,8 +264,7 @@ typedef struct {
   // int64_t inputDims[numberInputDims];
 } SoftmaxInfo;
 
-#define VERSAT_SoftmaxInfo_inputDims(INFO)                                     \
-  ((int64_t *)VERSAT_OFFSET_PTR(INFO, sizeof(SoftmaxInfo)))
+#define VERSAT_SoftmaxInfo_inputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(INFO,sizeof(SoftmaxInfo)))
 
 typedef struct {
   int numberInputDims;
@@ -290,11 +274,8 @@ typedef struct {
   // int64_t perm[permSize];
 } TransposeInfo;
 
-#define VERSAT_TransposeInfo_inputDims(INFO)                                   \
-  ((int64_t *)VERSAT_OFFSET_PTR(INFO, sizeof(TransposeInfo)))
-#define VERSAT_TransposeInfo_perm(INFO)                                        \
-  ((int64_t *)VERSAT_OFFSET_PTR(VERSAT_TransposeInfo_inputDims(INFO),          \
-                                INFO->numberInputDims * sizeof(int64_t)))
+#define VERSAT_TransposeInfo_inputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(INFO,sizeof(TransposeInfo)))
+#define VERSAT_TransposeInfo_perm(INFO) ((int64_t *) VERSAT_OFFSET_PTR(VERSAT_TransposeInfo_inputDims(INFO),INFO->numberInputDims * sizeof(int64_t)))
 
 typedef struct {
   int numberInputDims;
@@ -304,8 +285,7 @@ typedef struct {
   // int64_t inputDims[numberInputDims];
 } BatchNormalizationInfo;
 
-#define VERSAT_BatchNormalizationInfo_inputDims(INFO)                          \
-  ((int64_t *)VERSAT_OFFSET_PTR(INFO, sizeof(BatchNormalizationInfo)))
+#define VERSAT_BatchNormalizationInfo_inputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(INFO,sizeof(BatchNormalizationInfo)))
 
 typedef struct {
   int numberInputDims;
@@ -314,8 +294,7 @@ typedef struct {
   // int64_t inputDims[numberInputDims];
 } DropoutInfo;
 
-#define VERSAT_DropoutInfo_inputDims(INFO)                                     \
-  ((int64_t *)VERSAT_OFFSET_PTR(INFO, sizeof(DropoutInfo)))
+#define VERSAT_DropoutInfo_inputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(INFO,sizeof(DropoutInfo)))
 
 typedef struct {
   int numberInputDims;
@@ -327,8 +306,7 @@ typedef struct {
   // int64_t inputDims[numberInputDims];
 } LRNInfo;
 
-#define VERSAT_LRNInfo_inputDims(INFO)                                         \
-  ((int64_t *)VERSAT_OFFSET_PTR(INFO, sizeof(LRNInfo)))
+#define VERSAT_LRNInfo_inputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(INFO,sizeof(LRNInfo)))
 
 typedef struct {
   int numberInputDims;
@@ -342,13 +320,33 @@ typedef struct {
   // int64_t cDims[numberInputDims];
 } GemmInfo;
 
-#define VERSAT_GemmInfo_aDims(INFO)                                            \
-  ((int64_t *)VERSAT_OFFSET_PTR(INFO, sizeof(GemmInfo)))
-#define VERSAT_GemmInfo_bDims(INFO)                                            \
-  ((int64_t *)VERSAT_OFFSET_PTR(VERSAT_GemmInfo_aDims(INFO),                   \
-                                INFO->numberInputDims * sizeof(int64_t)))
-#define VERSAT_GemmInfo_cDims(INFO)                                            \
-  ((int64_t *)VERSAT_OFFSET_PTR(VERSAT_GemmInfo_bDims(INFO),                   \
-                                INFO->numberInputDims * sizeof(int64_t)))
+#define VERSAT_GemmInfo_aDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(INFO,sizeof(GemmInfo)))
+#define VERSAT_GemmInfo_bDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(VERSAT_GemmInfo_aDims(INFO),INFO->numberInputDims * sizeof(int64_t)))
+#define VERSAT_GemmInfo_cDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(VERSAT_GemmInfo_bDims(INFO),INFO->numberInputDims * sizeof(int64_t)))
+
+typedef struct {
+  int dims;
+  int mode;
+  float constant;
+  // Followed by
+  // int64_t inputDims[dims];
+  // int64_t outputDims[dims];
+  // int64_t pad[dims * 2];
+} PadInfo;
+
+#define VERSAT_PadInfo_inputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(INFO,sizeof(PadInfo)))
+#define VERSAT_PadInfo_outputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(VERSAT_PadInfo_inputDims(INFO),INFO->dims * sizeof(int64_t)))
+#define VERSAT_PadInfo_pad(INFO) ((int64_t *) VERSAT_OFFSET_PTR(VERSAT_PadInfo_outputDims(INFO),INFO->dims * sizeof(int64_t)))
+
+typedef struct {
+  int dims;
+  float constant;
+  // Followed by
+  // int64_t outputDims[dims];
+  // int64_t pad[dims * 2];
+} FixPadInfo;
+
+#define VERSAT_FixPadInfo_outputDims(INFO) ((int64_t *) VERSAT_OFFSET_PTR(INFO,sizeof(FixPadInfo)))
+#define VERSAT_FixPadInfo_pad(INFO) ((int64_t *) VERSAT_OFFSET_PTR(VERSAT_FixPadInfo_outputDims(INFO),INFO->dims * sizeof(int64_t)))
 
 #endif // VERSAT_AI_OPERATORS_META

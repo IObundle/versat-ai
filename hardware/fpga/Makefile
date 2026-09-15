@@ -75,7 +75,7 @@ CONSOLE_CMD ?=$(PYTHON_DIR)/console.py -s $(BOARD_SERIAL_PORT)
 
 #board client command
 GRAB_TIMEOUT ?= 1000
-BOARD_GRAB_CMD=../../scripts/board_client.py grab $(GRAB_TIMEOUT)
+BOARD_GRAB_CMD=../../scripts/board_client.py grab $(GRAB_TIMEOUT) -b iob_aes_ku040_db_g
 
 #run fpga image
 run: build $(RUN_DEPS)

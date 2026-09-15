@@ -1,5 +1,7 @@
 #include <stdio.h>
 
+#include "src/versat_ai_conf.h"
+
 #define MIN(A, B) ((A) < (B) ? (A) : (B))
 
 long int GetFileSize(FILE *file) {
@@ -20,8 +22,6 @@ static int CharToInt(char ch) {
     return 10 + (ch - 'A');
   } else if (ch >= 'a' && ch <= 'f') {
     return 10 + (ch - 'a');
-  } else {
-    (*(char *)NULL) = 1;
   }
   return 0;
 }
@@ -39,6 +39,8 @@ int ParseInt(char *str) {
 
   return res;
 }
+
+#define MAX_HEX_FILES 8
 
 int main(int argc, char *argv[]) {
   char *binfile = argv[1];
@@ -63,56 +65,53 @@ int main(int argc, char *argv[]) {
 
   printf("%s\n", pathBuffer);
 
-  FILE *out0 = fopen(pathBuffer, "w");
+  int hexfiles = (VERSAT_AI_AXI_DATA_W / 8);
+  FILE *filesArray[MAX_HEX_FILES];
 
-  pathBuffer[size - 3] = '1';
-  FILE *out1 = fopen(pathBuffer, "w");
-
-  pathBuffer[size - 3] = '2';
-  FILE *out2 = fopen(pathBuffer, "w");
-
-  pathBuffer[size - 3] = '3';
-  FILE *out3 = fopen(pathBuffer, "w");
+  for (int i = 0; i < hexfiles; i++) {
+    pathBuffer[size - 3] = '0' + i;
+    filesArray[i] = fopen(pathBuffer, "w");
+  }
 
   FILE *out = fopen(outputFile, "w");
   long int inSize = GetFileSize(in);
 
-  unsigned char buffer[1024 * 4];
+  unsigned char buffer[1024 * MAX_HEX_FILES];
 
-  for (int i = 0; i < inSize; i += 1024) {
+  int amountRead = 0;
+  for (int i = 0; i < inSize; i += amountRead) {
     int leftover = MIN(inSize - i, 1024);
 
-    fread(buffer, sizeof(unsigned char), leftover, in);
+    amountRead = fread(buffer, sizeof(unsigned char), leftover, in);
 
-    for (int j = 0; j < leftover; j += 4) {
-      fprintf(out, "%02x", buffer[j + 3]);
-      fprintf(out, "%02x", buffer[j + 2]);
-      fprintf(out, "%02x", buffer[j + 1]);
-      fprintf(out, "%02x", buffer[j + 0]);
+    if (amountRead < 0) {
+      printf("ERROR reading\n");
+      break;
+    }
+    if (amountRead == 0) {
+      printf("ERROR, no more to read\n");
+      break;
+    }
 
-      fprintf(out0, "%02x\n", buffer[j + 0]);
-      fprintf(out1, "%02x\n", buffer[j + 1]);
-      fprintf(out2, "%02x\n", buffer[j + 2]);
-      fprintf(out3, "%02x\n", buffer[j + 3]);
+    for (int j = 0; j < amountRead; j += hexfiles) {
+      for (int k = hexfiles - 1; k >= 0; k--) {
+        fprintf(out, "%02x", buffer[j + k]);
+      }
+
+      for (int k = 0; k < hexfiles; k++) {
+        fprintf(filesArray[k], "%02x\n", buffer[j + k]);
+      }
 
       fprintf(out, "\n");
     }
   }
 
-#if 0
-   long int leftover = (1 << memSize) - inSize;
-
-   for(int i = 0; i < leftover / 4; i += 1){
-      fprintf(out,"00000000\n");
-   }
-#endif
-
   fclose(in);
   fclose(out);
-  fclose(out0);
-  fclose(out1);
-  fclose(out2);
-  fclose(out3);
+
+  for (int i = 0; i < hexfiles; i++) {
+    fclose(filesArray[i]);
+  }
 
   return 0;
 }

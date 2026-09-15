@@ -88,6 +88,9 @@ void Versat_Init();
 typedef uint64_t (*MeasureTimeFunction)();
 MeasureTimeFunction Versat_SetTimeMeasurementFunction(MeasureTimeFunction func);
 
+typedef void (*TimeResetFunction)();
+TimeResetFunction Versat_SetTimeReset(TimeResetFunction func);
+
 // Clear cache starting from ptr and spaning size bytes
 // Depending on the architecture of the embedded system this might not be
 // required or it might be essential.
@@ -95,6 +98,26 @@ typedef void (*ClearCache)(void *ptr, size_t size);
 ClearCache Versat_SetClearCache(ClearCache func);
 
 typedef int (*VersatPrintf)(const char *format, ...);
+
+// Profiling
+typedef struct {
+  const char *name;
+  union {
+    uint64_t time;
+    uint8_t asByte[8];
+  };
+} ProfileSample;
+
+typedef struct {
+  ProfileSample *samples;
+  int amount;
+} ProfileResult;
+
+#define ProfileScope(INDEX, NAME) // _ProfileScope(INDEX, NAME)
+void _ProfileScope(int index, const char *name);
+
+ProfileResult Profile_Get();
+void Profile_Reset();
 
 // TODO: Still need to figure out how to make this work, we could just allocate
 // some output memory and store the array inside it.
@@ -136,7 +159,7 @@ typedef struct {
   uint32_t operatorSize;
 
   uint32_t type;
-  uint32_t useVersat;
+  uint32_t useSoftware;
   float precision;
   DataSource output;
 

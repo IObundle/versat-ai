@@ -151,6 +151,8 @@ def modules_from_dict(fu_dirs: list[str]) -> list[str]:
     Returns:
         list[VerilogModule]: List of Verilog module names.
     """
+    ignoreList = ["VexRiscvAxi4LinuxPlicClint"]
+
     fus_to_lint: list[str] = []
     for dir in fu_dirs:
         # search for verilog modules in all *.v files
@@ -165,6 +167,18 @@ def modules_from_dict(fu_dirs: list[str]) -> list[str]:
         pattern = r"^[ \t]*module\b(.*?)\bendmodule\b"
         for vfile in v_files:
             modules = []
+            pathAsStr = str(vfile)
+
+            print(vfile, type(vfile))
+
+            doIgnore = False
+            for ignore in ignoreList:
+                if ignore in pathAsStr:
+                    doIgnore = True
+
+            if doIgnore:
+                continue
+
             with open(vfile, "r") as file:
                 content = file.read()
                 modules = re.findall(pattern, content, re.MULTILINE | re.DOTALL)

@@ -7,11 +7,15 @@ import pprint
 import time
 
 
-def RunVersat(versat_spec, versat_top, versat_extra, build_dir, axi_data_w, debug_path):
+def RunVersat(
+    versat_spec, versat_top, versat_extra, build_dir, axi_data_w, debug_path, extra
+):
     versat_args = [
         "versat",
         os.path.realpath(versat_spec),
         f"-b{axi_data_w}",
+        "--profile",
+        "--debug",
         "-p",
         "csrs_",
         "-t",
@@ -34,6 +38,9 @@ def RunVersat(versat_spec, versat_top, versat_extra, build_dir, axi_data_w, debu
     if versat_extra:
         versat_args = versat_args + ["-u", versat_extra]
 
+    if extra:
+        versat_args += extra
+
     print(*versat_args, "\n", file=sys.stderr)
     result = sp.run(versat_args, capture_output=True, encoding="utf-8")
 
@@ -54,9 +61,29 @@ def RunVersat(versat_spec, versat_top, versat_extra, build_dir, axi_data_w, debu
 
 
 if __name__ == "__main__":
+    # print(sys.argv)
+
+    extra = sys.argv[1:]
+
+    axi_data_w = 32
+    toRemove = -1
+    for i, ex in enumerate(extra):
+        if "AXI_DATA_W=" in ex:
+            axi_data_w = int(ex[11:])
+            toRemove = i
+
+    if toRemove != -1:
+        del extra[toRemove]
+
     try:
         output = RunVersat(
-            "./versatSpec.txt", "Test", None, "./submodules/iob_versat", 32, None
+            "./versatSpec.txt",
+            "Test",
+            None,
+            "./submodules/iob_versat",
+            axi_data_w,
+            None,
+            extra,
         )
     except Exception as e:
         print("Failed to generate Versat:")
@@ -79,20 +106,12 @@ if __name__ == "__main__":
             "generate_hw": True,
             "confs": [
                 {
-                    "name": "DATA_W",
+                    "name": "AXI_DATA_W",
                     "type": "P",
-                    "val": "32",
+                    "val": axi_data_w,
                     "min": "NA",
                     "max": "NA",
                     "descr": "Data bus width",
-                },
-                {
-                    "name": "WDATA_W",
-                    "type": "P",
-                    "val": "1",
-                    "min": "NA",
-                    "max": "8",
-                    "descr": "",
                 },
             ],
             "ports": [
@@ -107,7 +126,7 @@ if __name__ == "__main__":
                         "type": "axi",
                         "ID_W": "AXI_ID_W",
                         "ADDR_W": "AXI_ADDR_W",
-                        "DATA_W": "AXI_DATA_W",
+                        "DATA_W": axi_data_w,
                         "LEN_W": "AXI_LEN_W",
                         "LOCK_W": 1,
                     },
@@ -168,8 +187,10 @@ import os
 
 
 def setup(py_params_dict):
+    expected_axi_data_w = {axi_data_w}
+
     attributes_dict = {attributes_dict.__repr__()}
 {copy_coverage}
-
+    
     return attributes_dict"""
         )

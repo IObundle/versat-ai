@@ -4,7 +4,6 @@ from copy import copy
 
 from versatDefs import (
     Operation,
-    InstantiatedAttribute,
     OnnxAttribute,
     OnnxAttributeType,
     OnnxOperatorSpec,
@@ -40,10 +39,6 @@ def BroadCastShape(op0, op1):
     return res
 
 
-def MakeAttrEnum(enumType, default):
-    return OnnxAttribute(OnnxAttributeType.ENUM, enumType, default)
-
-
 def MakeAttrBoundedString(allowedStringValues: list[str], default: str = None):
     return OnnxAttribute(OnnxAttributeType.BOUNDED_STRING, allowedStringValues, default)
 
@@ -76,10 +71,10 @@ def MakeAttrFloat(defaultValue):
 
 # Some attributes have defaults that depend on the operator (like the size of the spatial axis and such)
 # This function essentially instantiates default values such that outer code does not have to check if an attributes exists or not.
-def GetAttributesForOperator(op: Operation) -> dict[str, InstantiatedAttribute]:
+def GetAttributesForOperator(op: Operation) -> dict[str, any]:
     opName = op.opName
 
-    if not opName in operatorNameToSpec:
+    if opName not in operatorNameToSpec:
         return None
 
     opSpec = operatorNameToSpec[opName]
@@ -103,9 +98,9 @@ def GetAttributesForOperator(op: Operation) -> dict[str, InstantiatedAttribute]:
                 spatialAxes = 2 * (len(op.outputDimensions[0]) - 2)
                 trueDefaultValue = [attrType.defaultValue] * spatialAxes
 
-                res[name] = InstantiatedAttribute(attrType, trueDefaultValue)
+                res[name] = trueDefaultValue
             else:
-                res[name] = InstantiatedAttribute(attrType, attrType.defaultValue)
+                res[name] = attrType.defaultValue
 
     return res
 
@@ -159,16 +154,18 @@ def EmitMaxPool(emitter, op: Operation):
     attr = GetAttributesForOperator(op)
 
     dims = len(op.inputDimensions[0])
-    stride = attr["strides"].value
-    kernel = attr["kernel_shape"].value
-    pads = attr["pads"].value
-    padType = attr["auto_pad"].value
+    stride = attr["strides"]
+    kernel = attr["kernel_shape"]
+    pads = attr["pads"]
+    padType = attr["auto_pad"]
+
+    padAsEnum = PaddingType[padType]
 
     emitter.I32(dims)
     emitter.I32(len(kernel))
     emitter.I32(len(stride))
     emitter.I32(len(pads))
-    emitter.I32(padType.value)
+    emitter.I32(padAsEnum.value)
     emitter.I32Array(kernel)
     emitter.I32Array(stride)
     emitter.I32Array(pads)
@@ -185,6 +182,7 @@ convStructure = [
     ["strideSize", "int"],
     ["dilationsSize", "int"],
     ["padsSize", "int"],
+    ["isNHWC", "int"],
     ["padding", "PaddingType"],
     ["kernelDims", ("int", "kernelSize")],
     ["strideDims", ("int", "strideSize")],
@@ -198,14 +196,17 @@ convStructure = [
 def EmitConv(emitter, op: Operation):
     attr = GetAttributesForOperator(op)
 
-    dims = len(op.inputDimensions[0])
-    kernel = attr["kernel_shape"].value
-    stride = attr["strides"].value
-    dilations = attr["dilations"].value
-    pads = attr["pads"].value
-    group = attr["group"].value
-    padType = attr["auto_pad"].value
+    d = op.inputDimensions[0]
+    dims = len(d)
+    kernel = attr["kernel_shape"]
+    stride = attr["strides"]
+    dilations = attr["dilations"]
+    pads = attr["pads"]
+    group = attr["group"]
+    padType = attr["auto_pad"]
+    isNHWC = attr["isNHWC"]
 
+    padAsEnum = PaddingType[padType]
     featureMaps = op.inputDimensions[1][0]
 
     emitter.I32(dims)
@@ -215,13 +216,14 @@ def EmitConv(emitter, op: Operation):
     emitter.I32(len(stride))
     emitter.I32(len(dilations))
     emitter.I32(len(pads))
-    emitter.I32(padType.value)
+    emitter.I32(1 if isNHWC else 0)
+    emitter.I32(padAsEnum.value)
 
     emitter.I32Array(kernel)
     emitter.I32Array(stride)
     emitter.I32Array(dilations)
     emitter.I32Array(pads)
-    emitter.I64Array(op.inputDimensions[0])
+    emitter.I64Array(d)
     emitter.I64Array(op.outputDimensions[0])
 
 
@@ -243,6 +245,7 @@ def EmitReshape(emitter, op: Operation):
 
 
 matMulStructure = [
+    ["isBTransposed", "int"],
     ["numberInputADims", "int"],
     ["numberInputBDims", "int"],
     ["numberOutputDims", "int"],
@@ -251,11 +254,21 @@ matMulStructure = [
     ["outputDims", ["int64_t", "numberOutputDims"]],
 ]
 
+matMulAttributes = {
+    "isBTransposed": MakeAttrInteger(0),
+}
+
 
 def EmitMatMul(emitter, op: Operation):
+    attr = GetAttributesForOperator(op)
+
+    isBTransposed = attr["isBTransposed"]
+
     op0 = op.inputDimensions[0]
     op1 = op.inputDimensions[1]
     res = op.outputDimensions[0]
+
+    emitter.I32(isBTransposed)
 
     emitter.I32(len(op0))
     emitter.I32(len(op1))
@@ -277,7 +290,7 @@ def EmitSoftmax(emitter, op: Operation):
     attr = GetAttributesForOperator(op)
 
     dims = len(op.inputDimensions[0])
-    axis = attr["axis"].value
+    axis = attr["axis"]
 
     emitter.I32(dims)
     emitter.I32(axis)
@@ -295,7 +308,7 @@ transposeStructure = [
 def EmitTranspose(emitter, op: Operation):
     dims = len(op.inputDimensions[0])
     attr = GetAttributesForOperator(op)
-    perm = attr["perm"].value
+    perm = attr["perm"]
 
     emitter.I32(dims)
     emitter.I32(len(perm))
@@ -315,8 +328,8 @@ def EmitBatchNormalization(emitter, op: Operation):
     dims = len(op.inputDimensions[0])
 
     attr = GetAttributesForOperator(op)
-    epsilon = attr["epsilon"].value
-    momentum = attr["momentum"].value
+    epsilon = attr["epsilon"]
+    momentum = attr["momentum"]
 
     emitter.I32(dims)
     emitter.F32(epsilon)
@@ -353,10 +366,10 @@ def EmitLRN(emitter, op: Operation):
     dims = len(op.inputDimensions[0])
     attr = GetAttributesForOperator(op)
 
-    alpha = attr["alpha"].value
-    beta = attr["beta"].value
-    bias = attr["bias"].value
-    size = attr["size"].value
+    alpha = attr["alpha"]
+    beta = attr["beta"]
+    bias = attr["bias"]
+    size = attr["size"]
 
     emitter.I32(dims)
     emitter.F32(alpha)
@@ -383,10 +396,10 @@ def EmitGemm(emitter, op: Operation):
     dims = len(op.inputDimensions[0])
     attr = GetAttributesForOperator(op)
 
-    alpha = attr["alpha"].value
-    beta = attr["beta"].value
-    transA = attr["transA"].value
-    transB = attr["transB"].value
+    alpha = attr["alpha"]
+    beta = attr["beta"]
+    transA = attr["transA"]
+    transB = attr["transB"]
 
     emitter.I32(dims)
     emitter.F32(alpha)
@@ -394,14 +407,66 @@ def EmitGemm(emitter, op: Operation):
     emitter.I32(transA)
     emitter.I32(transB)
 
-    cShape = op.inputDimensions[2]
+    cShape = None
+    if len(op.inputDimensions) > 2:
+        cShape = op.inputDimensions[2]
 
+    assert cShape  # TODO: Need to handle this being optional
     if len(cShape) == 1:
         cShape = [1, cShape[0]]
 
     emitter.I64Array(op.inputDimensions[0])
     emitter.I64Array(op.inputDimensions[1])
     emitter.I64Array(cShape)
+
+
+padStructure = [
+    ["dims", "int"],
+    ["mode", "int"],
+    ["constant", "float"],
+    ["inputDims", ["int64_t", "dims"]],
+    ["outputDims", ["int64_t", "dims"]],
+    ["pad", ["int64_t", "dims * 2"]],
+]
+
+
+def EmitPad(emitter, op: Operation):
+    dims = len(op.inputDimensions[0])
+    attr = GetAttributesForOperator(op)
+
+    emitter.I32(dims)
+
+    if attr["mode"] == "constant":
+        emitter.I32(0)
+    if attr["mode"] == "reflect":
+        emitter.I32(1)
+    if attr["mode"] == "edge":
+        emitter.I32(2)
+
+    emitter.F32(attr["value"])
+
+    emitter.I64Array(op.inputDimensions[0])
+    emitter.I64Array(op.outputDimensions[0])
+    emitter.I64Array(attr["pads"])
+
+
+fixPadStructure = [
+    ["dims", "int"],
+    ["constant", "float"],
+    ["outputDims", ["int64_t", "dims"]],
+    ["pad", ["int64_t", "dims * 2"]],
+]
+
+
+def EmitFixPad(emitter, op: Operation):
+    dims = len(op.outputDimensions[0])
+    attr = GetAttributesForOperator(op)
+
+    emitter.I32(dims)
+    emitter.F32(attr["value"])
+
+    emitter.I64Array(op.outputDimensions[0])
+    emitter.I64Array(attr["pads"])
 
 
 def IsOperatorRegistered(opName: str):
@@ -424,16 +489,21 @@ def EmitParameterList(emitter, op: Operation):
 
 
 convAttributes = {
-    "auto_pad": MakeAttrEnum(PaddingType, PaddingType.NOTSET),
+    "auto_pad": MakeAttrBoundedString(
+        ["NOTSET", "SAME_UPPER", "SAME_LOWER", "VALID"], "NOTSET"
+    ),
     "dilations": MakeAttrAxisList(1),
     "group": MakeAttrInteger(1),
     "kernel_shape": MakeAttrIntegerList(None),
     "pads": MakeAttrAxisPairList(0),
     "strides": MakeAttrAxisList(1),
+    "isNHWC": MakeAttrInteger(0),
 }
 
 maxPoolAttributes = {
-    "auto_pad": MakeAttrEnum(PaddingType, PaddingType.NOTSET),
+    "auto_pad": MakeAttrBoundedString(
+        ["NOTSET", "SAME_UPPER", "SAME_LOWER", "VALID"], "NOTSET"
+    ),
     # "ceil_mode": MakeAttrInteger(0),
     # "dilations": MakeAttrAxisList(1),
     "kernel_shape": MakeAttrIntegerList(None),
@@ -443,7 +513,9 @@ maxPoolAttributes = {
 }
 
 averagePoolAttributes = {
-    "auto_pad": MakeAttrEnum(PaddingType, PaddingType.NOTSET),
+    "auto_pad": MakeAttrBoundedString(
+        ["NOTSET", "SAME_UPPER", "SAME_LOWER", "VALID"], "NOTSET"
+    ),
     # "ceil_mode": MakeAttrInteger(0),
     # "dilations": MakeAttrAxisList(1),
     "kernel_shape": MakeAttrIntegerList(None),
@@ -478,6 +550,17 @@ gemmAttributes = {
     "beta": MakeAttrFloat(1.0),
     "transA": MakeAttrInteger(0),
     "transB": MakeAttrInteger(0),
+}
+
+padAttributes = {
+    "mode": MakeAttrBoundedString(["constant", "reflect", "edge"], "constant"),
+    "pads": MakeAttrAxisPairList(0),
+    "value": MakeAttrFloat(0.0),
+}
+
+fixPadAttributes = {
+    "pads": MakeAttrAxisPairList(0),
+    "value": MakeAttrFloat(0.0),
 }
 
 dropoutAttributes = {"ratio": MakeAttrFloat(0.5)}
@@ -519,9 +602,9 @@ def GetAllOperatorSpecs():
 
 # name,emitFunction,attributesDict,supportedByVersat,broadcastType
 operatorNameToSpec = {}
-operatorNameToSpec["Add"] = OnnxOperatorSpec("Add", 0, EmitAdd, addStructure, [], True)
+operatorNameToSpec["Add"] = OnnxOperatorSpec("Add", 0, EmitAdd, addStructure, {}, True)
 operatorNameToSpec["Relu"] = OnnxOperatorSpec(
-    "Relu", 1, EmitRelu, reluStructure, [], True
+    "Relu", 1, EmitRelu, reluStructure, {}, True
 )
 operatorNameToSpec["MaxPool"] = OnnxOperatorSpec(
     "MaxPool",
@@ -540,10 +623,10 @@ operatorNameToSpec["Conv"] = OnnxOperatorSpec(
     "Conv", 4, EmitConv, convStructure, convAttributes, True
 )
 operatorNameToSpec["Reshape"] = OnnxOperatorSpec(
-    "Reshape", 5, EmitReshape, reshapeStructure, [], True
+    "Reshape", 5, EmitReshape, reshapeStructure, {}, True
 )
 operatorNameToSpec["MatMul"] = OnnxOperatorSpec(
-    "MatMul", 6, EmitMatMul, matMulStructure, [], True
+    "MatMul", 6, EmitMatMul, matMulStructure, matMulAttributes, True
 )
 operatorNameToSpec["Softmax"] = OnnxOperatorSpec(
     "Softmax", 7, EmitSoftmax, softmaxStructure, softmaxAttributes, True
@@ -579,4 +662,16 @@ operatorNameToSpec["LRN"] = OnnxOperatorSpec(
 )
 operatorNameToSpec["Gemm"] = OnnxOperatorSpec(
     "Gemm", 12, EmitGemm, gemmStructure, gemmAttributes, True
+)
+
+operatorNameToSpec["Pad"] = OnnxOperatorSpec(
+    "Pad", 13, EmitPad, padStructure, padAttributes, False
+)
+
+operatorNameToSpec["FixPad"] = OnnxOperatorSpec(
+    "FixPad", 254, EmitFixPad, fixPadStructure, fixPadAttributes, False
+)
+
+operatorNameToSpec["NIL"] = OnnxOperatorSpec(
+    "NIL", 255, lambda *args: None, [], {}, False
 )

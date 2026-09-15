@@ -73,6 +73,23 @@ if {[file exists "vivado/postmap.tcl"]} {
     source "vivado/postmap.tcl"
 }
 
+set_switching_activity -type lut -static_probability 0.5 -toggle_rate 10 [get_cells -hierarchical -filter {NAME =~ *iob_memwrapper*}]
+set_switching_activity -type lut_ram  -static_probability 0.5 -toggle_rate 10 [get_cells -hierarchical -filter {NAME =~ *iob_memwrapper*}]
+set_switching_activity -type bram -static_probability 0.5 -toggle_rate 10 [get_cells -hierarchical -filter {NAME =~ *iob_memwrapper*}]
+set_switching_activity -type bram_enable -static_probability 0.5 -toggle_rate 10 [get_cells -hierarchical -filter {NAME =~ *iob_memwrapper*}]
+set_switching_activity -type bram_wr_enable -static_probability 0.5 -toggle_rate 10 [get_cells -hierarchical -filter {NAME =~ *iob_memwrapper*}]
+set_switching_activity -type dsp -static_probability 0.5 -toggle_rate 10 [get_cells -hierarchical -filter {NAME =~ *iob_memwrapper*}]
+set_switching_activity -type io_output -static_probability 0.5 -toggle_rate 10 [get_cells -hierarchical -filter {NAME =~ *iob_memwrapper*}]
+set_switching_activity -type register -static_probability 0.5 -toggle_rate 10 [get_cells -hierarchical -filter {NAME =~ *iob_memwrapper*}]
+set_switching_activity -static_probability 0.5 -toggle_rate 10 [get_cells -hierarchical -filter {NAME =~ *iob_memwrapper*}]
+
+set_switching_activity -static_probability 0.5 -toggle_rate 10 [all_inputs]
+set_switching_activity -static_probability 0.5 -toggle_rate 10 [get_ports {rxd_i}]
+set_switching_activity -static_probability 0.1 -toggle_rate 0.1 [get_ports {areset_i}]
+
+puts [all_inputs]
+puts [get_cells -hierarchical -filter {NAME =~ *iob_memwrapper*}]
+
 opt_design 
 # -directive Explore
 
@@ -101,6 +118,7 @@ report_timing -file reports/$FPGA_TOP\_$PART\_timing.rpt
 report_timing_summary -file reports/$FPGA_TOP\_$PART\_timing_summary.rpt
 report_timing -file reports/$FPGA_TOP\_$PART\_timing_paths.rpt -max_paths 500
 report_bus_skew -file reports/$FPGA_TOP\_$PART\_bus_skew.rpt
+report_power -hier all -advisory -verbose -file reports/$NAME\_$PART\_power.rpt
 
 report_design_analysis -file reports/$FPGA_TOP\_$PART\_analysis.rpt -max_paths 50 -timing -show_all -complexity -congestion
 

@@ -10,3 +10,21 @@ every place that needs it. We can also try to figure out if we can find a simple
 [6] Need to take a look at the Group variable for Convolutions. Generated test was probably not properly testing this value since we 
 
 [7] Softmax memory size seems bugged for some reason. It does not cause problems for itself but causes other tests to fail after running a big example. 
+
+[8] Generating defines to access the emitted data is error prone. Consider replacing it with an inline function approach, maybe.
+
+/*
+
+Major graph optimizations:
+
+2) Having to perform the conversion between NCHW and NHWC as a preprocessing layer is also problematic. It would be better if we could preserve NHWC data layout as much as   possible
+
+3) Operations like Relu and FixPad could work directly on the input memory instead of realocation
+stuff and moving it. For FixPad this would also avoid a large amount of extra copy.
+For this to work we would need to be able to tell the memory allocator about this fact and 
+also make it so that the operators themselves know about this and to use a more efficient
+path in these situations.
+
+(For the know part, a simple if(input == output) check inside is enough).
+
+*/

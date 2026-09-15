@@ -43,6 +43,10 @@
     "type": "FIXED",
     "path": "./tests/alexnet"
   },
+  "Benchmark": {
+    "type": "FIXED_LIST",
+    "subTests": ["ToyCar","Image","Keyword","VisualWake"]
+  },
   "Simple": {
     "type": "FIXED_LIST",
     "subTests": ["MNIST","GeneratedLite"]

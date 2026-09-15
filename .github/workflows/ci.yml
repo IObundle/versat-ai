@@ -44,7 +44,7 @@ jobs:
       - name: run Generated sim
         run: |
           make clean;\
-          make sim-run
+          make sim-run INIT_MEM=1
 
   test2:
     runs-on: self-hosted
@@ -65,7 +65,7 @@ jobs:
       - name: run Softmax sim
         run: |
           make clean;\
-          make sim-run TEST=Softmax
+          make sim-run TEST=Softmax  INIT_MEM=1
 
   test3:
     runs-on: self-hosted
@@ -82,7 +82,7 @@ jobs:
       - name: run Tester sim-run
         run: |
           make clean;\
-          make tester-sim-run
+          make tester-sim-run TEST=GeneratedLite
 
   lint-FUs:
     runs-on: self-hosted

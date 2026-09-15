@@ -22,10 +22,70 @@ void *Software_ConvWithBias(void *inputX, void *inputW, void *inputB,
   int *strideDims = VERSAT_ConvInfo_strideDims(info);
   int *padsDims = VERSAT_ConvInfo_padsDims(info);
 
-  int batchSize = inputDims[0];
+#if 0
+  versat_printf("%llx %llx %llx %llx\n",inputDims[0],inputDims[1],inputDims[2],inputDims[3]);
+  versat_printf("%llx %llx %llx %llx\n",outputDims[0],outputDims[1],outputDims[2],outputDims[3]);
+  versat_printf("%x %x %x %x\n",padsDims[0],padsDims[1],padsDims[2],padsDims[3]);
+  versat_printf("%x %x\n",kernelDims[0],kernelDims[1]);
+  versat_printf("%x %x\n",strideDims[0],strideDims[1]);
+
+  for(int i = 0; i < sizeof(ConvInfo); i++){
+    char* a = (char*) info;
+    versat_printf("%02x ",a[i]);
+  }
+  versat_printf("\n");
+#endif
+
+#if 0
+  {
+    versat_printf("CONV INPUT X\n");
+    int totalSize = inputDims[0] * inputDims[1] * inputDims[2] * inputDims[3];
+
+    float *asFloat = (float *)inputX;
+    for (int i = 0; i < totalSize; i++) {
+      versat_printf("%f\n", asFloat[i]);
+    }
+  }
+#endif
+
+#if 0
+  {
+    versat_printf("CONV INPUT W\n");
+    int totalSize = 4; // Need to put logic in here
+
+    float *asFloat = (float *)inputW;
+    for (int i = 0; i < totalSize; i++) {
+      versat_printf("%f\n", asFloat[i]);
+    }
+  }
+#endif
+
+#if 0
+  {
+    versat_printf("CONV INPUT B\n");
+    int totalSize = 64;
+
+    float *asFloat = (float *)inputB;
+    for (int i = 0; i < totalSize; i++) {
+      versat_printf("%f\n", asFloat[i]);
+    }
+  }
+#endif
+
+  int batches = inputDims[0];
   int inChannels = inputDims[1];
-  int inW = inputDims[3];
   int inH = inputDims[2];
+  int inW = inputDims[3];
+
+  if (info->isNHWC) {
+    inChannels = inputDims[3];
+    inH = inputDims[1];
+    inW = inputDims[2];
+  }
+
+#if PRINT
+  versat_printf("IN(NCHW): %d %d %d %d\n", batches, inChannels, inH, inW);
+#endif
 
   int strideW = strideDims[1];
   int strideH = strideDims[0];
@@ -38,8 +98,18 @@ void *Software_ConvWithBias(void *inputX, void *inputW, void *inputB,
   int group = info->group;
 
   int outChannels = outputDims[1]; // Should be equal to feature maps.
-  int outW = outputDims[3];
   int outH = outputDims[2];
+  int outW = outputDims[3];
+
+  if (info->isNHWC) {
+    outChannels = outputDims[3];
+    outH = outputDims[1];
+    outW = outputDims[2];
+  }
+
+#if PRINT
+  versat_printf("OUT(NCHW): %d %d %d %d\n", 1, outChannels, outH, outW);
+#endif
 
   float *input = (float *)inputX;
   float *kernel = (float *)inputW;
@@ -69,57 +139,169 @@ void *Software_ConvWithBias(void *inputX, void *inputW, void *inputB,
   int inputSize = inW * inH * inChannels;
   int outputSize = outW * outH * outChannels;
 
+  int inChannelsPerGroup = inChannels / group;
+  int outChannelsPerGroup = outChannels / group;
+
   float *inputView = input; // + (batch * inputSize);
 
-  for (; Address_IsValid(outGen); Address_Advance(outGen)) {
-    int outPos = Address_GetValue(outGen);
+  int64_t start = versat_time();
 
-    AddressGen inputPos = Address_Map2(outGen, inputDims, stride, offset);
+  if (info->dims == 4) {
+    int outDim1Size = outW;
+    int outDim2Size = outDim1Size * outH;
+    int outDim3Size = outDim2Size * outChannels;
 
-    // KernelGen does not know about the indexes used to access the kernel
-    // weights We compute them outside.
-    int outC = outGen->addressVars[1];
-
-    float accum = 0.0f;
-    KernelGen kernInst = StartKernel(&inputPos, kernelDims, 2);
-    KernelGen *kern = &kernInst;
-
-    int inChannelsPerGroup = inChannels / group;
-    int outChannelsPerGroup = outChannels / group;
-
-    if (group == 1) {
-      kern->addressGenVars[1] = 0;
-    } else {
-      kern->addressGenVars[1] =
-          (outC / outChannelsPerGroup) * inChannelsPerGroup;
+    if (info->isNHWC) {
+      outDim1Size = outChannels;
+      outDim2Size = outDim1Size * outW;
+      outDim3Size = outDim2Size * outH;
     }
-    kern->kernelDims[1] = inChannels / group;
 
-    int currentGroup = outC / outChannelsPerGroup;
-    for (int inC = currentGroup * inChannelsPerGroup;
-         inC < (currentGroup + 1) * inChannelsPerGroup; inC++) {
-      int kernelIndex =
-          outC * (inChannels / group) * extra.kernelW * extra.kernelH;
+    for (int batch = 0; batch < batches; batch++) {
+      for (int g = 0; g < group; g++) {
+        for (int outC = g * outChannelsPerGroup;
+             outC < ((g + 1) * outChannelsPerGroup); outC++) {
+          for (int outY = 0, inY = -extra.leftPadH; outY < outH;
+               outY++, inY += strideH) {
+            // int inY = outY * strideH - extra.leftPadH;
 
-      for (; Kernel_IsValid(kern); Kernel_Advance(kern), kernelIndex += 1) {
-        bool isPadded = Kernel_IsInsidePad(kern);
-        if (isPadded) {
-          continue;
+            for (int outX = 0, inX = -extra.leftPadW; outX < outW;
+                 outX++, inX += strideW) {
+              // int inX = outX * strideW - extra.leftPadW;
+              int outPos = batch * outDim3Size + outC * outDim2Size +
+                           outY * outDim1Size + outX;
+
+              if (info->isNHWC) {
+                outPos = batch * outDim3Size + outY * outDim2Size +
+                         outX * outDim1Size + outC;
+              }
+
+#if PRINT
+              versat_printf("Out: %d\n", outPos);
+#endif
+
+              float accum = 0.0f;
+              if (bias) {
+                accum += bias[outC];
+              }
+
+              for (int inC = 0; inC < inChannelsPerGroup; inC++) {
+                for (int kY = 0; kY < kernelH; kY++) {
+                  int trueY = inY + kY;
+
+                  if (trueY < 0 || trueY >= inH) {
+                    continue;
+                  }
+
+                  for (int kX = 0; kX < kernelW; kX++) {
+                    int trueX = inX + kX;
+
+                    if (trueX < 0 || trueX >= inW) {
+                      continue;
+                    }
+
+                    int inputIn =
+                        ((batch * inChannels + (inC + g * inChannelsPerGroup)) *
+                             inH +
+                         trueY) *
+                            inW +
+                        trueX;
+                    if (info->isNHWC) {
+                      inputIn =
+                          ((batch * inH + trueY) * inW + trueX) * inChannels +
+                          (inC + g * inChannelsPerGroup);
+                    }
+                    float feature = input[inputIn];
+
+#if PRINT
+                    versat_printf("%d %d %d %d: %d\n", batch, trueY, trueX, inC,
+                                  inputIn);
+#endif
+
+                    int weightIn =
+                        ((outC * inChannelsPerGroup + inC) * kernelH + kY) *
+                            kernelW +
+                        kX;
+                    float weight = kernel[weightIn];
+
+                    accum += feature * weight;
+                  }
+                }
+              }
+
+              outView[outPos] = accum;
+            }
+          }
         }
-        int index = Kernel_GetValue(kern);
+      }
+    }
+  } else {
+    versat_printf("Slow impl\n");
 
-        float kernelVal = kernel[kernelIndex];
-        float inputVal = inputView[index];
-        accum += inputVal * kernelVal;
+    int total = 0;
+    for (; Address_IsValid(outGen); Address_Advance(outGen)) {
+      int outPos = Address_GetValue(outGen);
+
+      AddressGen inputPos = Address_Map2(outGen, inputDims, stride, offset);
+
+      // KernelGen does not know about the indexes used to access the kernel
+      // weights We compute them outside.
+      int outC = outGen->addressVars[1];
+
+      float accum = 0.0f;
+      KernelGen kernInst = StartKernel(&inputPos, kernelDims, 2);
+      KernelGen *kern = &kernInst;
+
+      if (group == 1) {
+        kern->addressGenVars[1] = 0;
+      } else {
+        kern->addressGenVars[1] =
+            (outC / outChannelsPerGroup) * inChannelsPerGroup;
+      }
+      kern->kernelDims[1] = inChannels / group;
+
+      int currentGroup = outC / outChannelsPerGroup;
+      for (int inC = currentGroup * inChannelsPerGroup;
+           inC < (currentGroup + 1) * inChannelsPerGroup; inC++) {
+        int kernelIndex =
+            outC * inChannelsPerGroup * extra.kernelW * extra.kernelH;
+
+        for (; Kernel_IsValid(kern); Kernel_Advance(kern), kernelIndex += 1) {
+          bool isPadded = Kernel_IsInsidePad(kern);
+          if (isPadded) {
+            continue;
+          }
+          int index = Kernel_GetValue(kern);
+
+          total += 1;
+
+          float kernelVal = kernel[kernelIndex];
+          float inputVal = inputView[index];
+          accum += inputVal * kernelVal;
+        }
+      }
+
+      if (bias) {
+        outView[outPos] = accum + bias[outC];
+      } else {
+        outView[outPos] = accum;
       }
     }
 
-    if (bias) {
-      outView[outPos] = accum + bias[outC];
-    } else {
-      outView[outPos] = accum;
+    versat_printf("T: %d\n", total);
+  }
+
+#if 0
+  {
+    versat_printf("CONV OUTPUT\n");
+    int totalSize = outputDims[0] * outputDims[1] * outputDims[2] * outputDims[3];
+
+    float *asFloat = (float *)output;
+    for (int i = 0; i < totalSize; i++) {
+      versat_printf("%f\n", asFloat[i]);
     }
   }
+#endif
 
   return output;
 }
@@ -132,6 +314,11 @@ void *Software_Conv(void *inputX, void *inputW, void *output, int index,
 void *Software_Reshape(void *data, void *shape, void *output, int index,
                        ReshapeInfo *info) {
   int64_t *dims = VERSAT_ReshapeInfo_inputDims(info);
+
+  if (data == output) {
+    // versat_printf("INPLACE Reshape\n");
+    return data;
+  }
 
   int64_t size = 1;
   for (int64_t i = 0; i < info->numberInputDims; i++) {
@@ -226,12 +413,11 @@ void *Software_Relu(void *inputX, void *output, int index, ReluInfo *info) {
   float *view = (float *)inputX;
   float *out = (float *)output;
 
-  versat_printf("%d\n", info->dims);
+  if (inputX == output) {
+    // versat_printf("INPLACE RELU\n");
+  }
 
   int64_t *inputDims = VERSAT_ReluInfo_inputDims(info);
-
-  versat_printf("%llx\n", inputDims[0]);
-
   int64_t totalSize = CalculateSizeOfDim(inputDims, info->dims);
 
   for (int64_t i = 0; i < totalSize; i++) {
@@ -252,9 +438,6 @@ void *Software_MaxPool(void *inputX, void *output, int index,
   int *kernelDims = VERSAT_MaxPoolInfo_kernelDims(info);
   int *strideDims = VERSAT_MaxPoolInfo_strideDims(info);
   int *padsDims = VERSAT_MaxPoolInfo_padsDims(info);
-
-  versat_printf("%llx %llx %llx %llx\n", inputDims[0], inputDims[1],
-                inputDims[2], inputDims[3]);
 
   ExtraInfo extra = CalculateExtraInfo_MaxPool(info);
 
@@ -381,35 +564,81 @@ void *Software_MatMul(void *inputA, void *inputB, void *output, int index,
   int64_t *inputBDims = VERSAT_MatMulInfo_inputBDims(info);
   int64_t *outputDims = VERSAT_MatMulInfo_outputDims(info);
 
-  int AH = inputADims[0];
-  int AW = inputADims[1];
+  int AS = info->numberInputADims;
+  int AH;
+  int AW;
+  if (AS == 1) {
+    AH = 1;
+    AW = inputADims[0];
+  } else {
+    AH = inputADims[AS - 2];
+    AW = inputADims[AS - 1];
+  }
 
-  int BH = inputBDims[0];
-  int BW = inputBDims[1];
+  int BS = info->numberInputBDims;
+  int BH;
+  int BW;
+  if (BS == 1) {
+    BH = 1;
+    BW = inputBDims[0];
+  } else {
+    BH = inputBDims[BS - 2];
+    BW = inputBDims[BS - 1];
+  }
 
-  int OH = outputDims[0];
-  int OW = outputDims[1];
+  if (info->isBTransposed) {
+    int temp = BW;
+    BW = BH;
+    BH = temp;
+  }
 
+  int OS = info->numberOutputDims;
+  int OH;
+  int OW;
+  if (OS == 1) {
+    OH = 1;
+    OW = outputDims[0];
+  } else {
+    OH = outputDims[OS - 2];
+    OW = outputDims[OS - 1];
+  }
+
+#if 0
   if (AW != BH) {
     versat_printf("Something very wrong is happening in MatMul\n");
   }
+#endif
 
+  uint64_t start = versat_time();
+
+  // versat_printf("%d %d\n",OH,OW);
+
+  int count = 0;
   for (int y = 0; y < OH; y++) {
     for (int x = 0; x < OW; x++) {
       int indexOut = y * OW + x;
 
-      viewOut[indexOut] = 0.0f;
+      float accum = 0.0f;
       for (int c = 0; c < AW; c++) {
+        count += 1;
+
         int indexA = y * AW + c;
         int indexB = c * BW + x;
+        if (info->isBTransposed) {
+          indexB = x * AW + c;
+        }
 
         float valA = viewA[indexA];
         float valB = viewB[indexB];
 
-        viewOut[indexOut] += valA * valB;
+        accum += valA * valB;
       }
+      viewOut[indexOut] = accum;
     }
   }
+
+  // versat_printf("C: %d\n",count);
+  // PrintTime(start);
 
   return output;
 }
@@ -420,6 +649,13 @@ void *Software_Softmax(void *input, void *output, int index,
   float *out = (float *)output;
 
   int64_t *inputDims = VERSAT_SoftmaxInfo_inputDims(info);
+
+#if 0
+  for (int i = 0; i < 10; i++) {
+    float *a = (float *)input;
+    versat_printf("%f\n", a[i]);
+  }
+#endif
 
   // Axis are normalized here, no need to handle negative axis after this point
   int axis = info->axis;
@@ -471,6 +707,13 @@ void *Software_Softmax(void *input, void *output, int index,
       out[index] = out[index] / sum;
     }
   }
+
+#if 0
+  for (int i = 0; i < 10; i++) {
+    float *a = (float *)output;
+    versat_printf("%f\n", a[i]);
+  }
+#endif
 
   return output;
 }
@@ -587,5 +830,251 @@ void *Software_LRN(void *input, void *out, int index, LRNInfo *info) {
 void *Software_Gemm(void *inA, void *inB, void *inC, void *out, int index,
                     GemmInfo *info) {
   // TODO: Implement this.
+  return out;
+}
+
+void *Software_Pad(void *inA, void *out, int index, PadInfo *info) {
+  int dims = info->dims;
+
+  int64_t *inputDims = VERSAT_PadInfo_inputDims(info);
+  int64_t *outputDims = VERSAT_PadInfo_outputDims(info);
+  int64_t *pad = VERSAT_PadInfo_pad(info);
+
+  float *input = (float *)inA;
+  float *output = (float *)out;
+
+  if (dims == 1) {
+    for (int x = 0, inX = -pad[0]; x < outputDims[0]; x++, inX++) {
+      if (inX < 0 || inX >= inputDims[0]) {
+        output[x] = 0.0f;
+      } else {
+        output[x] = input[inX];
+      }
+    }
+  } else if (dims == 2) {
+    for (int y = 0, inY = -pad[0]; y < outputDims[0]; y++, inY++) {
+      for (int x = 0, inX = -pad[1]; x < outputDims[1]; x++, inX++) {
+        int outputPos = y * outputDims[1] + x;
+
+        if (inX < 0 || inY < 0 || inY >= inputDims[0] || inX >= inputDims[1]) {
+          output[outputPos] = 0.0f;
+        } else {
+          int inputPos = inY * inputDims[1] + inX;
+          output[outputPos] = input[inputPos];
+        }
+      }
+    }
+  } else if (dims == 3) {
+    for (int z = 0, inZ = -pad[0]; z < outputDims[0]; z++, inZ++) {
+      for (int y = 0, inY = -pad[1]; y < outputDims[1]; y++, inY++) {
+        for (int x = 0, inX = -pad[2]; x < outputDims[2]; x++, inX++) {
+          int outputPos = (z * outputDims[1] + y) * outputDims[2] + x;
+
+          if (inX < 0 || inY < 0 || inZ < 0 || inZ >= inputDims[0] ||
+              inY >= inputDims[1] || inX >= inputDims[2]) {
+            output[outputPos] = 0.0f;
+          } else {
+            int inputPos = (inZ * inputDims[1] + inY) * inputDims[2] + inX;
+            output[outputPos] = input[inputPos];
+          }
+        }
+      }
+    }
+  } else if (dims == 4) {
+    for (int w = 0, inW = -pad[0]; w < outputDims[0]; w++, inW++) {
+      for (int z = 0, inZ = -pad[1]; z < outputDims[1]; z++, inZ++) {
+        for (int y = 0, inY = -pad[2]; y < outputDims[2]; y++, inY++) {
+          for (int x = 0, inX = -pad[3]; x < outputDims[3]; x++, inX++) {
+            int outputPos =
+                ((w * outputDims[1] + z) * outputDims[2] + y) * outputDims[3] +
+                x;
+
+            if (inX < 0 || inY < 0 || inZ < 0 || inW < 0 ||
+                inW >= inputDims[0] || inZ >= inputDims[1] ||
+                inY >= inputDims[2] || inX >= inputDims[3]) {
+              output[outputPos] = 0.0f;
+            } else {
+              int inputPos = ((inW * inputDims[1] + inZ) * inputDims[2] + inY) *
+                                 inputDims[3] +
+                             inX;
+              output[outputPos] = input[inputPos];
+            }
+          }
+        }
+      }
+    }
+  } else {
+    // TODO: Implement generic case
+  }
+
+  return out;
+}
+
+void *Software_FixPad(void *inA, void *out, int index, FixPadInfo *info) {
+  int dims = info->dims;
+
+  int64_t *outputDims = VERSAT_FixPadInfo_outputDims(info);
+  int64_t *pad = VERSAT_FixPadInfo_pad(info);
+
+  float *input = (float *)inA;
+  float *output = (float *)out;
+
+  if (input == output) {
+    if (dims == 4) {
+      int wPaddedDims = outputDims[0] - pad[4];
+      int zPaddedDims = outputDims[1] - pad[5];
+      int yPaddedDims = outputDims[2] - pad[6];
+      int xPaddedDims = outputDims[3] - pad[7];
+
+      for (uint64_t w = 0; w < pad[0]; w++) {
+        for (uint64_t z = 0; z < outputDims[1]; z++) {
+          for (uint64_t y = 0; y < outputDims[2]; y++) {
+            for (uint64_t x = 0; x < outputDims[3]; x++) {
+              int pos = ((w * outputDims[1] + z) * outputDims[2] + y) *
+                            outputDims[3] +
+                        x;
+              output[pos] = 0.0f;
+            }
+          }
+        }
+      }
+      for (uint64_t w = wPaddedDims; w < outputDims[0]; w++) {
+        for (uint64_t z = 0; z < outputDims[1]; z++) {
+          for (uint64_t y = 0; y < outputDims[2]; y++) {
+            for (uint64_t x = 0; x < outputDims[3]; x++) {
+              int pos = ((w * outputDims[1] + z) * outputDims[2] + y) *
+                            outputDims[3] +
+                        x;
+              output[pos] = 0.0f;
+            }
+          }
+        }
+      }
+
+      for (uint64_t w = 0; w < outputDims[0]; w++) {
+        for (uint64_t z = 0; z < pad[1]; z++) {
+          for (uint64_t y = 0; y < outputDims[2]; y++) {
+            for (uint64_t x = 0; x < outputDims[3]; x++) {
+              int pos = ((w * outputDims[1] + z) * outputDims[2] + y) *
+                            outputDims[3] +
+                        x;
+              output[pos] = 0.0f;
+            }
+          }
+        }
+      }
+      for (uint64_t w = 0; w < outputDims[0]; w++) {
+        for (uint64_t z = zPaddedDims; z < outputDims[1]; z++) {
+          for (uint64_t y = 0; y < outputDims[2]; y++) {
+            for (uint64_t x = 0; x < outputDims[3]; x++) {
+              int pos = ((w * outputDims[1] + z) * outputDims[2] + y) *
+                            outputDims[3] +
+                        x;
+              output[pos] = 0.0f;
+            }
+          }
+        }
+      }
+
+      for (uint64_t w = 0; w < outputDims[0]; w++) {
+        for (uint64_t z = 0; z < outputDims[1]; z++) {
+          for (uint64_t y = 0; y < pad[2]; y++) {
+            for (uint64_t x = 0; x < outputDims[3]; x++) {
+              int pos = ((w * outputDims[1] + z) * outputDims[2] + y) *
+                            outputDims[3] +
+                        x;
+              output[pos] = 0.0f;
+            }
+          }
+        }
+      }
+      for (uint64_t w = 0; w < outputDims[0]; w++) {
+        for (uint64_t z = 0; z < outputDims[1]; z++) {
+          for (uint64_t y = yPaddedDims; y < outputDims[2]; y++) {
+            for (uint64_t x = 0; x < outputDims[3]; x++) {
+              int pos = ((w * outputDims[1] + z) * outputDims[2] + y) *
+                            outputDims[3] +
+                        x;
+              output[pos] = 0.0f;
+            }
+          }
+        }
+      }
+
+      for (uint64_t w = 0; w < outputDims[0]; w++) {
+        for (uint64_t z = 0; z < outputDims[1]; z++) {
+          for (uint64_t y = 0; y < outputDims[2]; y++) {
+            for (uint64_t x = 0; x < pad[3]; x++) {
+              int pos = ((w * outputDims[1] + z) * outputDims[2] + y) *
+                            outputDims[3] +
+                        x;
+              output[pos] = 0.0f;
+            }
+          }
+        }
+      }
+      for (uint64_t w = 0; w < outputDims[0]; w++) {
+        for (uint64_t z = 0; z < outputDims[1]; z++) {
+          for (uint64_t y = 0; y < outputDims[2]; y++) {
+            for (uint64_t x = xPaddedDims; x < outputDims[3]; x++) {
+              int pos = ((w * outputDims[1] + z) * outputDims[2] + y) *
+                            outputDims[3] +
+                        x;
+              output[pos] = 0.0f;
+            }
+          }
+        }
+      }
+
+      return output;
+    }
+  }
+
+  // NOTE: We can be more efficient because right now we are iterating a lot of
+  // empty space.
+
+  if (dims == 1) {
+    for (int x = 0; x < outputDims[0]; x++) {
+      if (x < pad[0] || x > outputDims[0] - pad[1]) {
+        output[x] = 0.0f;
+      } else {
+        output[x] = input[x];
+      }
+    }
+  }
+  if (dims == 2) {
+    for (int y = 0; y < outputDims[0]; y++) {
+      for (int x = 0; x < outputDims[1]; x++) {
+        int pos = y * outputDims[1] + x;
+        if (y < pad[0] || y > outputDims[0] - pad[2] || x < pad[1] ||
+            x > outputDims[1] - pad[3]) {
+          output[pos] = 0.0f;
+        } else {
+          output[pos] = input[pos];
+        }
+      }
+    }
+  }
+  if (dims == 4) {
+    for (uint64_t w = 0; w < outputDims[0]; w++) {
+      for (uint64_t z = 0; z < outputDims[1]; z++) {
+        for (uint64_t y = 0; y < outputDims[2]; y++) {
+          for (uint64_t x = 0; x < outputDims[3]; x++) {
+            int pos =
+                ((w * outputDims[1] + z) * outputDims[2] + y) * outputDims[3] +
+                x;
+            if (w < pad[0] || z < pad[1] || y < pad[2] || x < pad[3] ||
+                w >= outputDims[0] - pad[4] || z >= outputDims[1] - pad[5] ||
+                y >= outputDims[2] - pad[6] || x >= outputDims[3] - pad[7]) {
+              output[pos] = 0.0f;
+            } else {
+              output[pos] = input[pos];
+            }
+          }
+        }
+      }
+    }
+  }
+
   return out;
 }
