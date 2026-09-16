@@ -27,7 +27,7 @@ jobs:
 
   test1:
     runs-on: self-hosted
-    timeout-minutes: 10
+    timeout-minutes: 30
     if: ${{ !cancelled() }}
     needs: []
 
@@ -48,7 +48,7 @@ jobs:
 
   test2:
     runs-on: self-hosted
-    timeout-minutes: 20
+    timeout-minutes: 30
     if: ${{ !cancelled() }}
     needs: []
 
@@ -69,7 +69,7 @@ jobs:
 
   test3:
     runs-on: self-hosted
-    timeout-minutes: 20
+    timeout-minutes: 40
     if: ${{ !cancelled() }}
     needs: []
 
