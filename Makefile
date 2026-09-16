@@ -97,7 +97,7 @@ sim-run: test-setup
 
 tester-sim-run:
 	make test-setup TESTER=1 TESTER_SIM=1 
-	#nix-shell --run "make -C ../$(CORE)_V$(VERSION)/tester sim-run SIMULATOR=$(SIMULATOR)"
+	nix-shell --run "make -C ../$(CORE)_V$(VERSION)/tester sim-run SIMULATOR=$(SIMULATOR)"
 
 # For some reason the vivado build.tcl is being overwritten by py2. Need to copy it before 
 fpga-run: test-setup

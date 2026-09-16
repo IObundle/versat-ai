@@ -48,7 +48,7 @@ jobs:
 
   test2:
     runs-on: self-hosted
-    timeout-minutes: 10
+    timeout-minutes: 20
     if: ${{ !cancelled() }}
     needs: []
 
